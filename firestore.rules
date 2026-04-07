@@ -1,0 +1,243 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (Firebase Auth UID)
+    // Fields:
+    //   - id: string (required)
+    //   - email: string (required, email format)
+    //   - name: string (required)
+    //   - role: string (required, 'Admin' | 'User')
+    //   - avatar: string (optional)
+    //
+    // Collection: permissions
+    // Document ID: userId (Firebase Auth UID)
+    // Fields:
+    //   - userId: string (required)
+    //   - projectIds: list of strings (required)
+    //
+    // Collection: projects
+    // Document ID: projectId
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - status: string (required, 'Planning' | 'In Progress' | 'Paused' | 'Completed' | 'Archived')
+    //   ... other fields
+    //
+    // Collection: experiments
+    // Document ID: experimentId
+    // Fields:
+    //   - id: string (required)
+    //   - projectId: string (required)
+    //   - title: string (required)
+    //   - status: string (required, 'Draft' | 'Completed')
+    //   ... other fields
+    //
+    // Collection: experiments/{experimentId}/samples
+    // Document ID: sampleId
+    // Fields:
+    //   - id: string (required)
+    //   - experimentId: string (required)
+    //   - sampleCode: string (required)
+    //   ... other fields
+    //
+    // Collection: attachments
+    // Document ID: attachmentId
+    // Fields:
+    //   - id: string (required)
+    //   - parentId: string (required)
+    //   - name: string (required)
+    //   - type: string (required)
+    //   - url: string (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Admin' ||
+          (request.auth.token.email == "amos12282000@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['id', 'email', 'name', 'role']) &&
+             data.id is string &&
+             data.email is string && isValidEmail(data.email) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.role in ['Admin', 'User'];
+    }
+
+    function isValidPermission(data) {
+      return hasRequiredFields(['userId', 'projectIds']) &&
+             data.userId is string &&
+             data.projectIds is list;
+    }
+
+    function isValidProject(data) {
+      return hasRequiredFields(['id', 'name', 'status']) &&
+             data.id is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.status in ['Planning', 'In Progress', 'Paused', 'Completed', 'Archived'];
+    }
+
+    function isValidExperiment(data) {
+      return hasRequiredFields(['id', 'projectId', 'title', 'status']) &&
+             data.id is string && data.id.size() < 100 &&
+             data.projectId is string && data.projectId.size() < 100 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.status in ['Draft', 'Completed'];
+    }
+
+    function isValidSample(data) {
+      return hasRequiredFields(['id', 'experimentId', 'sampleCode', 'batchNumber', 'createdAt']) &&
+             data.id is string && data.id.size() < 100 &&
+             data.experimentId is string && data.experimentId.size() < 100 &&
+             data.sampleCode is string && data.sampleCode.size() < 100 &&
+             data.batchNumber is string && data.batchNumber.size() < 100 &&
+             data.createdAt is string && data.createdAt.size() < 100;
+    }
+
+    function isValidAttachment(data) {
+      return hasRequiredFields(['id', 'parentId', 'name', 'type', 'url', 'size', 'uploadedAt']) &&
+             data.id is string &&
+             data.parentId is string &&
+             data.name is string && data.name.size() > 0 &&
+             data.type is string &&
+             data.url is string &&
+             data.size is number &&
+             data.uploadedAt is string;
+    }
+
+    function isValidTodo(data) {
+      return hasRequiredFields(['id', 'text', 'completed', 'createdAt']) &&
+             data.id is string &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 1000 &&
+             data.completed is bool &&
+             data.createdAt is string;
+    }
+
+    function isValidAnnouncement(data) {
+      return hasRequiredFields(['id', 'title', 'content', 'date', 'type', 'authorId']) &&
+             data.id is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.content is string && data.content.size() > 0 && data.content.size() < 5000 &&
+             data.date is string &&
+             data.type in ['info', 'warning', 'success'] &&
+             data.authorId is string;
+    }
+
+    function isValidCalendarEvent(data) {
+      return hasRequiredFields(['id', 'title', 'date', 'time', 'authorId']) &&
+             data.id is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.date is string &&
+             data.time is string &&
+             data.authorId is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /permissions/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /projects/{projectId} {
+      allow read: if isAuthenticated(); // Access control handled in app logic or more complex rules
+      allow write: if isAdmin();
+    }
+
+    match /experiments/{experimentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated(); // Should ideally check project access
+      
+      match /samples/{sampleId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+    }
+
+    match /testItems/{testItemId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /processProfiles/{profileId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /formulationProfiles/{profileId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /attachments/{attachmentId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidAttachment(request.resource.data);
+      allow update: if isAuthenticated() && isValidAttachment(request.resource.data);
+      allow delete: if isAuthenticated();
+    }
+
+    match /todos/{todoId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidTodo(request.resource.data);
+      allow update: if isAuthenticated() && isValidTodo(request.resource.data);
+      allow delete: if isAuthenticated();
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidAnnouncement(request.resource.data);
+      allow update: if isAuthenticated() && isValidAnnouncement(request.resource.data);
+      allow delete: if isAuthenticated();
+    }
+
+    match /calendarEvents/{eventId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidCalendarEvent(request.resource.data);
+      allow update: if isAuthenticated() && isValidCalendarEvent(request.resource.data);
+      allow delete: if isAuthenticated();
+    }
+  }
+}

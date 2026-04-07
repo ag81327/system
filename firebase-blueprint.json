@@ -1,0 +1,222 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System user profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["Admin", "User"] },
+        "avatar": { "type": "string" }
+      },
+      "required": ["id", "email", "name", "role"]
+    },
+    "UserPermission": {
+      "title": "UserPermission",
+      "description": "User project access permissions",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "projectIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["userId", "projectIds"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "Research and development project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["Planning", "In Progress", "Paused", "Completed", "Archived"] },
+        "kpiTarget": { "type": "string" },
+        "startDate": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "specs": { "type": "object" }
+      },
+      "required": ["id", "name", "status"]
+    },
+    "Experiment": {
+      "title": "Experiment",
+      "description": "Experimental record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "operator": { "type": "string" },
+        "observations": { "type": "string" },
+        "anomalies": { "type": "string" },
+        "conclusions": { "type": "string" },
+        "suggestions": { "type": "string" },
+        "status": { "type": "string", "enum": ["Draft", "Completed"] }
+      },
+      "required": ["id", "projectId", "title", "date", "status"]
+    },
+    "Sample": {
+      "title": "Sample",
+      "description": "Experimental sample",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "experimentId": { "type": "string" },
+        "sampleCode": { "type": "string" },
+        "batchNumber": { "type": "string" },
+        "moldBatchNumber": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "gradeA": { "type": "number" },
+        "gradeB": { "type": "number" },
+        "gradeC": { "type": "number" },
+        "defects": { "type": "array", "items": { "type": "object" } },
+        "results": { "type": "array", "items": { "type": "object" } }
+      },
+      "required": ["id", "experimentId", "sampleCode", "batchNumber", "createdAt"]
+    },
+    "Attachment": {
+      "title": "Attachment",
+      "description": "File attachment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "parentId": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "size": { "type": "number" },
+        "url": { "type": "string" },
+        "uploadedAt": { "type": "string" }
+      },
+      "required": ["id", "parentId", "name", "type", "url"]
+    },
+    "TestItem": {
+      "title": "TestItem",
+      "description": "Test specification item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "unit": { "type": "string" },
+        "type": { "type": "string", "enum": ["Numerical", "Visual"] }
+      },
+      "required": ["id", "name", "type"]
+    },
+    "ProcessProfile": {
+      "title": "ProcessProfile",
+      "description": "Standard process conditions profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "conditions": { "type": "array", "items": { "type": "object" } }
+      },
+      "required": ["id", "name"]
+    },
+    "FormulationProfile": {
+      "title": "FormulationProfile",
+      "description": "Standard formulation profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "items": { "type": "array", "items": { "type": "object" } }
+      },
+      "required": ["id", "name"]
+    },
+    "Todo": {
+      "title": "Todo",
+      "description": "Task item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "assignees": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "text", "completed", "createdAt"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Bulletin board announcement",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "date": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "warning", "success"] },
+        "authorId": { "type": "string" },
+        "targetUsers": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "title", "content", "date", "type", "authorId"]
+    },
+    "CalendarEvent": {
+      "title": "CalendarEvent",
+      "description": "Calendar event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "description": { "type": "string" },
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "authorId": { "type": "string" }
+      },
+      "required": ["id", "title", "date", "time", "authorId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/permissions/{userId}": {
+      "schema": "UserPermission",
+      "description": "User project permissions"
+    },
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Projects"
+    },
+    "/experiments/{experimentId}": {
+      "schema": "Experiment",
+      "description": "Experiments"
+    },
+    "/experiments/{experimentId}/samples/{sampleId}": {
+      "schema": "Sample",
+      "description": "Samples for an experiment"
+    },
+    "/attachments/{attachmentId}": {
+      "schema": "Attachment",
+      "description": "File attachments"
+    },
+    "/testItems/{testItemId}": {
+      "schema": "TestItem",
+      "description": "Test items"
+    },
+    "/processProfiles/{profileId}": {
+      "schema": "ProcessProfile",
+      "description": "Process profiles"
+    },
+    "/formulationProfiles/{profileId}": {
+      "schema": "FormulationProfile",
+      "description": "Formulation profiles"
+    },
+    "/todos/{todoId}": {
+      "schema": "Todo",
+      "description": "Task items"
+    },
+    "/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "Bulletin board announcements"
+    },
+    "/calendarEvents/{eventId}": {
+      "schema": "CalendarEvent",
+      "description": "Calendar events"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "研發數據管理與趨勢分析平台",
+  "description": "一套整合式研發管理平台，用於管理實驗紀錄、結構化測試數據與趨勢分析。",
+  "requestFramePermissions": []
+}
