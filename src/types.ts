@@ -59,6 +59,7 @@ export interface Experiment {
   processConditions?: ProcessCondition[];
   notes?: string;
   attachments?: string[]; // IDs of attachments
+  visibleTo?: string[]; // User IDs who can view this experiment
 }
 
 export type LensGrade = 'A' | 'B' | 'C';
@@ -123,11 +124,33 @@ export interface User {
   name: string;
   role: UserRole;
   avatar?: string;
+  isApproved: boolean;
+  accessStartDate?: string | null; // ISO date string
+  accessEndDate?: string | null;   // ISO date string
+  relativeAccessDays?: number | null; // e.g., 30, 60, 180, 365
+}
+
+export interface ProjectAccessLimit {
+  startDate?: string | null;
+  endDate?: string | null;
+  relativeAccessDays?: number | null;
 }
 
 export interface UserPermission {
   userId: string;
   projectIds: string[]; // List of project IDs the user can access
+  projectAccessLimits?: Record<string, ProjectAccessLimit>;
+}
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: 'info' | 'warning' | 'success' | 'alert';
+  link?: string;
+  createdAt: string;
+  read: boolean;
 }
 
 export interface Todo {

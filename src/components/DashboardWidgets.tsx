@@ -16,6 +16,7 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useAuth } from './AuthContext';
 import { 
   getPersistentTodos, 
   savePersistentTodo, 
@@ -115,17 +116,27 @@ export const TodoList = () => {
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [isAdding, setIsAdding] = useState(false);
 
+  const { user } = useAuth();
+
   useEffect(() => {
     const fetchData = async () => {
       const [todosData, usersData] = await Promise.all([
         getPersistentTodos(),
         getPersistentUsers()
       ]);
-      setTodos(todosData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      
+      // Filter todos: Admin sees all, others see only assigned or created by them
+      const filteredTodos = todosData.filter(t => 
+        user?.role === 'Admin' || 
+        t.assignees.includes(user?.id || '') || 
+        t.id.startsWith('t') // Assuming local creation for now, but better to check authorId if added
+      );
+
+      setTodos(filteredTodos.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
       setUsers(usersData);
     };
     fetchData();
-  }, []);
+  }, [user?.id, user?.role]);
 
   const handleAddTodo = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,6 +153,22 @@ export const TodoList = () => {
     try {
       await savePersistentTodo(todo);
       setTodos([todo, ...todos]);
+      
+      // Notify assignees
+      if (selectedAssignees.length > 0) {
+        const { createNotification } = await import('../services/notificationService');
+        const promises = selectedAssignees.map(uid => 
+          createNotification({
+            userId: uid,
+            title: '新任務指派',
+            message: `您有一個新任務: ${newTodo}`,
+            type: 'info',
+            link: '/'
+          })
+        );
+        await Promise.all(promises);
+      }
+
       setNewTodo('');
       setSelectedAssignees([]);
       setIsAdding(false);
@@ -294,17 +321,29 @@ export const BulletinBoard = () => {
   const [isViewAll, setIsViewAll] = useState(false);
   const [newAnnouncement, setNewAnnouncement] = useState({ title: '', content: '', type: 'info' as Announcement['type'], targetUsers: [] as string[] });
 
+  const { user } = useAuth();
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
+
   useEffect(() => {
     const fetchData = async () => {
       const [data, usersData] = await Promise.all([
         getPersistentAnnouncements(),
         getPersistentUsers()
       ]);
-      setAnnouncements(data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      
+      // Filter announcements: Admin sees all, others see only targeted or public (targetUsers empty)
+      const filtered = data.filter(a => 
+        user?.role === 'Admin' || 
+        a.targetUsers.length === 0 || 
+        a.targetUsers.includes(user?.id || '') ||
+        a.authorId === user?.id
+      );
+
+      setAnnouncements(filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
       setUsers(usersData);
     };
     fetchData();
-  }, []);
+  }, [user?.id, user?.role]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -320,6 +359,24 @@ export const BulletinBoard = () => {
     try {
       await savePersistentAnnouncement(announcement);
       setAnnouncements([announcement, ...announcements]);
+
+      // Notify users
+      const { notifyAllUsers, createNotification } = await import('../services/notificationService');
+      if (newAnnouncement.targetUsers.length > 0) {
+        const promises = newAnnouncement.targetUsers.map(uid => 
+          createNotification({
+            userId: uid,
+            title: '新公告通知',
+            message: `您有一則新公告: ${newAnnouncement.title}`,
+            type: 'info',
+            link: '/'
+          })
+        );
+        await Promise.all(promises);
+      } else {
+        await notifyAllUsers('新公告通知', `系統發佈了新公告: ${newAnnouncement.title}`, '/');
+      }
+
       setNewAnnouncement({ title: '', content: '', type: 'info', targetUsers: [] });
       setIsAdding(false);
       toast.success('公告已發佈');
@@ -374,9 +431,9 @@ export const BulletinBoard = () => {
             <textarea 
               value={newAnnouncement.content}
               onChange={(e) => setNewAnnouncement({ ...newAnnouncement, content: e.target.value })}
-              placeholder="公告內容..."
-              rows={3}
-              className="w-full bg-white border border-slate-200 text-sm rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+              placeholder="公告內容 (支援換行)..."
+              rows={5}
+              className="w-full bg-white border border-slate-200 text-sm rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500"
             />
             <div className="flex gap-2">
               {(['info', 'warning', 'success'] as const).map(type => (
@@ -424,7 +481,11 @@ export const BulletinBoard = () => {
 
       <div className="space-y-4 overflow-y-auto flex-1 pr-1 custom-scrollbar">
         {announcements.slice(0, 5).map(item => (
-          <div key={item.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100 hover:bg-white hover:border-brand-100 transition-all cursor-pointer group relative">
+          <div 
+            key={item.id} 
+            onClick={() => setSelectedAnnouncement(item)}
+            className="p-4 rounded-xl bg-slate-50 border border-slate-100 hover:bg-white hover:border-brand-100 transition-all cursor-pointer group relative"
+          >
             <div className="flex items-center justify-between mb-2">
               <span className={cn(
                 "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider",
@@ -437,7 +498,7 @@ export const BulletinBoard = () => {
               <span className="text-[10px] text-slate-400">{item.date}</span>
             </div>
             <h4 className="text-sm font-bold text-slate-900 mb-1">{item.title}</h4>
-            <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{item.content}</p>
+            <p className="text-xs text-slate-500 line-clamp-3 leading-relaxed whitespace-pre-wrap">{item.content}</p>
             {item.targetUsers && item.targetUsers.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-2">
                 {item.targetUsers.map(uid => {
@@ -464,10 +525,61 @@ export const BulletinBoard = () => {
         )}
       </div>
 
+      {/* Announcement Detail Modal */}
+      {selectedAnnouncement && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className={cn(
+                  "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider",
+                  selectedAnnouncement.type === 'warning' ? "bg-amber-100 text-amber-700" :
+                  selectedAnnouncement.type === 'success' ? "bg-emerald-100 text-emerald-700" :
+                  "bg-blue-100 text-blue-700"
+                )}>
+                  {selectedAnnouncement.type === 'warning' ? '重要' : selectedAnnouncement.type === 'success' ? '喜訊' : '通知'}
+                </span>
+                <h3 className="text-lg font-bold text-slate-900">{selectedAnnouncement.title}</h3>
+              </div>
+              <button onClick={() => setSelectedAnnouncement(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            <div className="p-8 overflow-y-auto max-h-[60vh] custom-scrollbar">
+              <p className="text-sm text-slate-400 mb-4">{selectedAnnouncement.date}</p>
+              <div className="prose prose-slate max-w-none">
+                <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedAnnouncement.content}</p>
+              </div>
+              {selectedAnnouncement.targetUsers && selectedAnnouncement.targetUsers.length > 0 && (
+                <div className="mt-8 pt-6 border-t border-slate-50">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">公告對象</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedAnnouncement.targetUsers.map(uid => {
+                      const user = users.find(u => u.id === uid);
+                      return user ? (
+                        <span key={uid} className="text-xs bg-slate-50 text-slate-600 px-2 py-1 rounded-lg border border-slate-100">@{user.name}</span>
+                      ) : null;
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button 
+                onClick={() => setSelectedAnnouncement(null)}
+                className="px-6 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-100 transition-all"
+              >
+                關閉
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* View All Modal */}
       {isViewAll && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col animate-in fade-in zoom-in duration-200">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
               <h3 className="text-lg font-bold text-slate-900">所有公告事項</h3>
               <button onClick={() => setIsViewAll(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
@@ -476,7 +588,14 @@ export const BulletinBoard = () => {
             </div>
             <div className="p-6 overflow-y-auto space-y-4 custom-scrollbar">
               {announcements.map(item => (
-                <div key={item.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100 hover:bg-white hover:border-brand-100 transition-all group relative">
+                <div 
+                  key={item.id} 
+                  onClick={() => {
+                    setIsViewAll(false);
+                    setSelectedAnnouncement(item);
+                  }}
+                  className="p-4 rounded-xl bg-slate-50 border border-slate-100 hover:bg-white hover:border-brand-100 transition-all cursor-pointer group relative"
+                >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className={cn(
@@ -491,7 +610,7 @@ export const BulletinBoard = () => {
                     </div>
                     <span className="text-xs text-slate-400">{item.date}</span>
                   </div>
-                  <p className="text-sm text-slate-600 leading-relaxed">{item.content}</p>
+                  <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{item.content}</p>
                   {item.targetUsers && item.targetUsers.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
                       {item.targetUsers.map(uid => {
@@ -520,6 +639,7 @@ export const BulletinBoard = () => {
 
 // --- Calendar Widget ---
 export const DashboardCalendar = () => {
+  const { user } = useAuth();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -533,11 +653,19 @@ export const DashboardCalendar = () => {
         getPersistentCalendarEvents(),
         getPersistentUsers()
       ]);
-      setEvents(eventsData);
+      
+      // Filter events: Admin sees all, others see only where they are participants or author
+      const filtered = eventsData.filter(e => 
+        user?.role === 'Admin' || 
+        e.participants.includes(user?.id || '') ||
+        e.authorId === user?.id
+      );
+
+      setEvents(filtered);
       setUsers(usersData);
     };
     fetchData();
-  }, []);
+  }, [user?.id, user?.role]);
 
   const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
   const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay();
@@ -564,6 +692,22 @@ export const DashboardCalendar = () => {
     try {
       await savePersistentCalendarEvent(event);
       setEvents([...events, event]);
+
+      // Notify participants
+      if (newEvent.participants.length > 0) {
+        const { createNotification } = await import('../services/notificationService');
+        const promises = newEvent.participants.map(uid => 
+          createNotification({
+            userId: uid,
+            title: '新行程通知',
+            message: `您被邀請參加活動: ${newEvent.title} (${selectedDate} ${newEvent.time})`,
+            type: 'info',
+            link: '/'
+          })
+        );
+        await Promise.all(promises);
+      }
+
       setNewEvent({ title: '', time: '09:00', description: '', participants: [] });
       setIsAdding(false);
       toast.success('活動已新增');
@@ -691,7 +835,7 @@ export const DashboardCalendar = () => {
       {/* Add Event Modal */}
       {isAdding && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-in fade-in zoom-in duration-200">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
               <h3 className="text-lg font-bold text-slate-900">新增活動 - {selectedDate}</h3>
               <button onClick={() => setIsAdding(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">

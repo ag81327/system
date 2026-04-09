@@ -8,7 +8,7 @@ import {
   savePersistentUsers,
   deletePersistentUser
 } from '../lib/persistence';
-import { Shield, User as UserIcon, Check, X, Search, Key, Save, Plus, Mail, UserPlus, Trash2 } from 'lucide-react';
+import { Shield, User as UserIcon, Check, X, Search, Key, Save, Plus, Mail, UserPlus, Trash2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from './AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
@@ -26,6 +26,11 @@ export const UserManagement: React.FC = () => {
   const [editingName, setEditingName] = useState('');
   const [editingEmail, setEditingEmail] = useState('');
   const [editingRole, setEditingRole] = useState<UserRole>('User');
+  const [editingIsApproved, setEditingIsApproved] = useState(false);
+  const [editingAccessStartDate, setEditingAccessStartDate] = useState('');
+  const [editingAccessEndDate, setEditingAccessEndDate] = useState('');
+  const [editingRelativeAccessDays, setEditingRelativeAccessDays] = useState<number | null>(null);
+  const [editingProjectAccessLimits, setEditingProjectAccessLimits] = useState<Record<string, { startDate?: string, endDate?: string, relativeAccessDays?: number | null }>>({});
 
   useEffect(() => {
     const fetchData = async () => {
@@ -67,8 +72,13 @@ export const UserManagement: React.FC = () => {
       setEditingName(selectedUser.name);
       setEditingEmail(selectedUser.email);
       setEditingRole(selectedUser.role);
+      setEditingIsApproved(selectedUser.isApproved);
+      setEditingAccessStartDate(selectedUser.accessStartDate || '');
+      setEditingAccessEndDate(selectedUser.accessEndDate || '');
+      setEditingRelativeAccessDays(selectedUser.relativeAccessDays || null);
+      setEditingProjectAccessLimits(userPermissions?.projectAccessLimits || {});
     }
-  }, [selectedUserId, selectedUser]);
+  }, [selectedUserId, selectedUser, userPermissions]);
 
   const handleTogglePermission = async (projectId: string) => {
     if (!selectedUserId) return;
@@ -100,6 +110,36 @@ export const UserManagement: React.FC = () => {
     }
   };
 
+  const handleUpdateProjectLimit = async (projectId: string, field: 'startDate' | 'endDate' | 'relativeAccessDays', value: any) => {
+    if (!selectedUserId) return;
+
+    const newLimits = { ...editingProjectAccessLimits };
+    if (!newLimits[projectId]) newLimits[projectId] = {};
+    
+    if (field === 'relativeAccessDays') {
+      newLimits[projectId][field] = value === 'none' ? null : Number(value);
+    } else {
+      newLimits[projectId][field] = value;
+    }
+    
+    setEditingProjectAccessLimits(newLimits);
+
+    const newPermissions = [...permissions];
+    const userIndex = newPermissions.findIndex(p => p.userId === selectedUserId);
+    if (userIndex > -1) {
+      newPermissions[userIndex] = { ...newPermissions[userIndex], projectAccessLimits: newLimits };
+    } else {
+      newPermissions.push({ userId: selectedUserId, projectIds: [], projectAccessLimits: newLimits });
+    }
+
+    try {
+      await savePersistentPermissions(newPermissions);
+      setPermissions(newPermissions);
+    } catch (error) {
+      console.error('Error updating project limits:', error);
+    }
+  };
+
   const handleUpdateUser = async () => {
     if (!selectedUserId) return;
     if (!editingName || !editingEmail) {
@@ -112,7 +152,11 @@ export const UserManagement: React.FC = () => {
         ...u, 
         name: editingName, 
         email: editingEmail, 
-        role: editingRole
+        role: editingRole,
+        isApproved: editingIsApproved,
+        accessStartDate: editingAccessStartDate || null,
+        accessEndDate: editingAccessEndDate || null,
+        relativeAccessDays: editingRelativeAccessDays
       } : u
     );
 
@@ -143,7 +187,8 @@ export const UserManagement: React.FC = () => {
       id: newUserId,
       name: newUser.name,
       email: newUser.email,
-      role: newUser.role
+      role: newUser.role,
+      isApproved: true // Manually added users are auto-approved
     };
 
     const updatedUsers = [...users, userToAdd];
@@ -253,8 +298,13 @@ export const UserManagement: React.FC = () => {
                 }`}>
                   {user.role === 'Admin' ? <Shield className="w-5 h-5" /> : <UserIcon className="w-5 h-5" />}
                 </div>
-                <div className="text-left min-w-0">
-                  <p className="text-sm font-bold truncate">{user.name}</p>
+                <div className="text-left min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold truncate">{user.name}</p>
+                    {!user.isApproved && (
+                      <span className="px-1.5 py-0.5 bg-rose-100 text-rose-600 text-[10px] font-bold rounded uppercase">待審核</span>
+                    )}
+                  </div>
                   <p className={`text-xs truncate ${selectedUserId === user.id ? 'text-white/70' : 'text-slate-500'}`}>
                     {user.email}
                   </p>
@@ -313,6 +363,74 @@ export const UserManagement: React.FC = () => {
                       <option value="Admin">管理員</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">審核狀態</label>
+                    <div className="flex items-center gap-4 h-[42px]">
+                      <button
+                        onClick={() => setEditingIsApproved(true)}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl border-2 transition-all font-bold text-sm ${
+                          editingIsApproved 
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-700' 
+                            : 'border-slate-100 bg-white text-slate-400 hover:border-slate-200'
+                        }`}
+                      >
+                        <Check className="w-4 h-4" />
+                        已核准
+                      </button>
+                      <button
+                        onClick={() => setEditingIsApproved(false)}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl border-2 transition-all font-bold text-sm ${
+                          !editingIsApproved 
+                            ? 'border-rose-500 bg-rose-50 text-rose-700' 
+                            : 'border-slate-100 bg-white text-slate-400 hover:border-slate-200'
+                        }`}
+                      >
+                        <X className="w-4 h-4" />
+                        待審核
+                      </button>
+                    </div>
+                  </div>
+                    <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6 p-4 bg-brand-50/50 rounded-2xl border border-brand-100">
+                      <div className="md:col-span-3">
+                        <label className="block text-xs font-bold text-brand-700 uppercase tracking-wider mb-2 flex items-center gap-2">
+                          <Key className="w-3 h-3" />
+                          實驗紀錄存取期限 (選填)
+                        </label>
+                        <p className="text-[10px] text-brand-600 mb-3">設定該人員可查看實驗紀錄的時間範圍。若不設定則無限制。</p>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">相對期限 (最近天數)</label>
+                        <select
+                          value={editingRelativeAccessDays || 'none'}
+                          onChange={(e) => setEditingRelativeAccessDays(e.target.value === 'none' ? null : Number(e.target.value))}
+                          className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-brand-500 text-sm"
+                        >
+                          <option value="none">無相對限制</option>
+                          <option value="30">最近 30 天</option>
+                          <option value="60">最近 60 天</option>
+                          <option value="180">最近 180 天</option>
+                          <option value="365">最近 1 年</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">開始日期</label>
+                        <input
+                          type="date"
+                          value={editingAccessStartDate}
+                          onChange={(e) => setEditingAccessStartDate(e.target.value)}
+                          className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-brand-500 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">結束日期</label>
+                        <input
+                          type="date"
+                          value={editingAccessEndDate}
+                          onChange={(e) => setEditingAccessEndDate(e.target.value)}
+                          className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-brand-500 text-sm"
+                        />
+                      </div>
+                    </div>
                 </div>
                 
                 <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
@@ -352,33 +470,75 @@ export const UserManagement: React.FC = () => {
                     <p className="text-slate-500 font-medium">管理員擁有最高權限，預設可存取所有專案內容。</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     {projects.map(project => {
                       const isAllowed = userPermissions?.projectIds.includes(project.id);
+                      const limits = editingProjectAccessLimits[project.id] || {};
                       return (
-                        <button
+                        <div
                           key={project.id}
-                          onClick={() => handleTogglePermission(project.id)}
-                          className={`p-6 rounded-2xl border-2 transition-all text-left flex items-center justify-between group ${
+                          className={`p-6 rounded-2xl border-2 transition-all text-left space-y-4 ${
                             isAllowed 
                               ? 'border-brand-500 bg-brand-50/30' 
-                              : 'border-slate-100 hover:border-slate-200 bg-white'
+                              : 'border-slate-100 bg-white'
                           }`}
                         >
-                          <div className="min-w-0">
-                            <p className={`font-bold truncate ${isAllowed ? 'text-brand-700' : 'text-slate-900'}`}>
-                              {project.name}
-                            </p>
-                            <p className="text-xs text-slate-500 mt-1 truncate">{project.description}</p>
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0">
+                              <p className={`font-bold truncate ${isAllowed ? 'text-brand-700' : 'text-slate-900'}`}>
+                                {project.name}
+                              </p>
+                              <p className="text-xs text-slate-500 mt-1 truncate">{project.description}</p>
+                            </div>
+                            <button
+                              onClick={() => handleTogglePermission(project.id)}
+                              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+                                isAllowed 
+                                  ? 'bg-brand-500 text-white' 
+                                  : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
+                              }`}
+                            >
+                              {isAllowed ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                            </button>
                           </div>
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
-                            isAllowed 
-                              ? 'bg-brand-500 text-white' 
-                              : 'bg-slate-100 text-slate-300 group-hover:bg-slate-200'
-                          }`}>
-                            {isAllowed ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
-                          </div>
-                        </button>
+                          
+                          {isAllowed && (
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-brand-100">
+                              <div>
+                                <label className="block text-[10px] font-bold text-brand-600 uppercase mb-1">相對期限</label>
+                                <select
+                                  value={limits.relativeAccessDays || 'none'}
+                                  onChange={(e) => handleUpdateProjectLimit(project.id, 'relativeAccessDays', e.target.value)}
+                                  className="w-full px-3 py-1.5 bg-white border border-brand-200 rounded-lg outline-none focus:ring-2 focus:ring-brand-500 text-xs"
+                                >
+                                  <option value="none">無相對限制</option>
+                                  <option value="30">最近 30 天</option>
+                                  <option value="60">最近 60 天</option>
+                                  <option value="180">最近 180 天</option>
+                                  <option value="365">最近 1 年</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-brand-600 uppercase mb-1">開始日期</label>
+                                <input
+                                  type="date"
+                                  value={limits.startDate || ''}
+                                  onChange={(e) => handleUpdateProjectLimit(project.id, 'startDate', e.target.value)}
+                                  className="w-full px-3 py-1.5 bg-white border border-brand-200 rounded-lg outline-none focus:ring-2 focus:ring-brand-500 text-xs"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-brand-600 uppercase mb-1">結束日期</label>
+                                <input
+                                  type="date"
+                                  value={limits.endDate || ''}
+                                  onChange={(e) => handleUpdateProjectLimit(project.id, 'endDate', e.target.value)}
+                                  className="w-full px-3 py-1.5 bg-white border border-brand-200 rounded-lg outline-none focus:ring-2 focus:ring-brand-500 text-xs"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -500,9 +660,21 @@ export const UserManagement: React.FC = () => {
                   <Trash2 className="w-8 h-8" />
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-2">確定要刪除人員嗎？</h3>
-                <p className="text-slate-500 mb-8">
-                  您確定要刪除人員「<span className="font-bold text-slate-700">{selectedUser?.name}</span>」嗎？此操作將永久刪除該帳號及其權限設定，且無法復原。
-                </p>
+                <div className="text-slate-500 mb-8 space-y-4">
+                  <p>
+                    您確定要刪除人員「<span className="font-bold text-slate-700">{selectedUser?.name}</span>」嗎？
+                  </p>
+                  <div className="p-4 bg-amber-50 rounded-xl border border-amber-100 text-left">
+                    <p className="text-xs text-amber-700 font-bold mb-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" /> 重要提醒：
+                    </p>
+                    <p className="text-[11px] text-amber-600 leading-relaxed">
+                      此操作僅會刪除資料庫紀錄。該人員的登入帳號仍會保留在系統中。
+                      若要徹底刪除並允許重新註冊，請聯繫系統管理員在 Firebase 控制台手動刪除該帳號。
+                      否則，該人員未來僅能透過「登入」來重新啟用帳號。
+                    </p>
+                  </div>
+                </div>
                 <div className="flex gap-3">
                   <button
                     onClick={() => setIsDeleteModalOpen(false)}

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, ReferenceLine, Legend
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, ReferenceLine, Legend, Area
 } from 'recharts';
 import { 
   TrendingUp, 
@@ -28,6 +28,7 @@ import {
 } from '../lib/persistence';
 import { useAuth } from './AuthContext';
 import { TodoList, BulletinBoard, DashboardCalendar } from './DashboardWidgets';
+import { calculateStats, detectNelsonRules } from '../lib/statsUtils';
 
 const StatCard = ({ title, value, trend, trendValue, icon: Icon, color, onClick }: any) => (
   <div 
@@ -112,11 +113,20 @@ export const Dashboard = () => {
   const [timeRange, setTimeRange] = useState('all');
   const [chartType, setChartType] = useState<'Xbar' | 'Xbar-R' | 'X' | 'EWMA' | 'CUSUM'>('Xbar');
 
+  const uniqueTestItems = useMemo(() => {
+    const seen = new Set();
+    return testItems.filter(item => {
+      if (seen.has(item.name)) return false;
+      seen.add(item.name);
+      return true;
+    });
+  }, [testItems]);
+
   useEffect(() => {
-    if (testItems.length > 0 && !selectedTestItemId) {
-      setSelectedTestItemId(testItems[0].id);
+    if (uniqueTestItems.length > 0 && !selectedTestItemId) {
+      setSelectedTestItemId(uniqueTestItems[0].id);
     }
-  }, [testItems, selectedTestItemId]);
+  }, [uniqueTestItems, selectedTestItemId]);
 
   // Update selected project if it's no longer accessible
   useEffect(() => {
@@ -203,21 +213,25 @@ export const Dashboard = () => {
     if (allSamplesData.length === 0) return [];
 
     const values = allSamplesData.map(d => d.value);
-    const overallMean = values.reduce((a, b) => a + b, 0) / values.length;
-    const variance = values.reduce((a, b) => a + Math.pow(b - overallMean, 2), 0) / (values.length - 1 || 1);
-    const stdDev = Math.sqrt(variance);
+    const stats = calculateStats(values);
+    const overallMean = stats.mean;
+    const stdDev = stats.stdDev;
 
     let UCL = overallMean + 3 * stdDev;
-    let LCL = Math.max(0, overallMean - 3 * stdDev);
+    let LCL = overallMean - 3 * stdDev;
 
     let ewmaValue = overallMean;
     let cusumValue = 0;
     const lambda = 0.2;
 
+    const nelsonViolations = detectNelsonRules(values, overallMean, stdDev);
+
     return allSamplesData.map((d, i) => {
       const currentVal = values[i];
       ewmaValue = lambda * currentVal + (1 - lambda) * ewmaValue;
       cusumValue += (currentVal - overallMean);
+
+      const pointViolations = nelsonViolations.filter(v => v.index === i);
 
       return {
         ...d,
@@ -227,7 +241,9 @@ export const Dashboard = () => {
         CL: parseFloat(overallMean.toFixed(3)),
         UCL: parseFloat(UCL.toFixed(3)),
         LCL: parseFloat(LCL.toFixed(3)),
-        isOut: currentVal > UCL || currentVal < LCL
+        range: [parseFloat(LCL.toFixed(3)), parseFloat(UCL.toFixed(3))],
+        isOut: currentVal > UCL || currentVal < LCL,
+        violations: pointViolations.map(v => v.rule)
       };
     });
   }, [experiments, selectedTestItemId, chartType, selectedProjectId, selectedExperimentId, timeRange, allSamplesMap]);
@@ -359,7 +375,7 @@ export const Dashboard = () => {
                 onChange={(e) => setSelectedTestItemId(e.target.value)}
                 className="flex-1 sm:flex-none bg-slate-50 border-none text-sm font-medium text-slate-600 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500"
               >
-                {testItems.map(item => (
+                {uniqueTestItems.map(item => (
                   <option key={item.id} value={item.id}>{item.name}</option>
                 ))}
               </select>
@@ -391,10 +407,10 @@ export const Dashboard = () => {
                     axisLine={false} 
                     tickLine={false} 
                     tick={{ fill: '#94a3b8', fontSize: 10 }} 
+                    domain={['auto', 'auto']}
                   />
                   <Tooltip 
                     isAnimationActive={false}
-                    trigger="click"
                     contentStyle={{ 
                       backgroundColor: '#fff', 
                       borderRadius: '12px', 
@@ -405,16 +421,36 @@ export const Dashboard = () => {
                       if (active && payload && payload.length) {
                         const data = payload[0].payload;
                         return (
-                          <div className="bg-white p-4 rounded-xl shadow-2xl border border-slate-100">
+                          <div className="bg-white p-4 rounded-xl shadow-2xl border border-slate-100 min-w-[200px]">
                             <p className="text-xs font-bold text-slate-900 mb-2">{data.fullBatch}</p>
-                            <div className="space-y-1">
-                              <p className="text-[10px] text-slate-500 flex justify-between gap-4">
-                                <span>量測值:</span> <span className="font-bold text-slate-900">{data.displayValue}</span>
-                              </p>
-                              {data.isOut && (
-                                <p className="text-[10px] text-rose-500 font-bold mt-2 flex items-center gap-1">
-                                  <AlertTriangle className="w-3 h-3" /> 超出管制界限!
-                                </p>
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center gap-4">
+                                <span className="text-[10px] text-slate-500">量測值:</span>
+                                <span className="text-xs font-bold text-brand-600">{data.displayValue}</span>
+                              </div>
+                              <div className="h-px bg-slate-100 my-1" />
+                              <div className="flex justify-between items-center gap-4">
+                                <span className="text-[10px] text-slate-500">UCL:</span>
+                                <span className="text-[10px] font-medium text-rose-500">{data.UCL}</span>
+                              </div>
+                              <div className="flex justify-between items-center gap-4">
+                                <span className="text-[10px] text-slate-500">CL:</span>
+                                <span className="text-[10px] font-medium text-slate-400">{data.CL}</span>
+                              </div>
+                              <div className="flex justify-between items-center gap-4">
+                                <span className="text-[10px] text-slate-500">LCL:</span>
+                                <span className="text-[10px] font-medium text-rose-500">{data.LCL}</span>
+                              </div>
+                              
+                              {data.violations && data.violations.length > 0 && (
+                                <div className="mt-2 pt-2 border-t border-rose-100">
+                                  <p className="text-[10px] text-rose-500 font-bold mb-1 flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3" /> 異常趨勢:
+                                  </p>
+                                  {data.violations.map((v: string, idx: number) => (
+                                    <p key={idx} className="text-[9px] text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded mt-0.5">{v}</p>
+                                  ))}
+                                </div>
                               )}
                             </div>
                           </div>
@@ -425,9 +461,23 @@ export const Dashboard = () => {
                   />
                   <Legend verticalAlign="top" height={36}/>
                   
-                  <ReferenceLine y={spcData[0]?.CL} stroke="#94a3b8" strokeWidth={2} label={{ position: 'right', value: 'CL', fill: '#94a3b8', fontSize: 10, fontWeight: 'bold' }} />
-                  <ReferenceLine y={spcData[0]?.UCL} stroke="#fb7185" strokeDasharray="5 5" strokeWidth={2} label={{ position: 'right', value: 'UCL', fill: '#fb7185', fontSize: 10, fontWeight: 'bold' }} />
-                  <ReferenceLine y={spcData[0]?.LCL} stroke="#fb7185" strokeDasharray="5 5" strokeWidth={2} label={{ position: 'right', value: 'LCL', fill: '#fb7185', fontSize: 10, fontWeight: 'bold' }} />
+                  {spcData.length > 0 && (
+                    <>
+                      <Area 
+                        type="monotone" 
+                        dataKey="range" 
+                        stroke="none" 
+                        fill="#fef2f2" 
+                        fillOpacity={0.6} 
+                        name="管制範圍"
+                        isAnimationActive={false}
+                      />
+                      
+                      <ReferenceLine y={spcData[0].CL} stroke="#94a3b8" strokeWidth={1.5} label={{ position: 'right', value: 'CL', fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} />
+                      <ReferenceLine y={spcData[0].UCL} stroke="#fb7185" strokeDasharray="3 3" strokeWidth={1.5} label={{ position: 'right', value: 'UCL', fill: '#fb7185', fontSize: 9, fontWeight: 'bold' }} />
+                      <ReferenceLine y={spcData[0].LCL} stroke="#fb7185" strokeDasharray="3 3" strokeWidth={1.5} label={{ position: 'right', value: 'LCL', fill: '#fb7185', fontSize: 9, fontWeight: 'bold' }} />
+                    </>
+                  )}
                   
                   <Line 
                     type="monotone" 
@@ -437,11 +487,11 @@ export const Dashboard = () => {
                     strokeWidth={4} 
                     dot={(props: any) => {
                       const { cx, cy, payload } = props;
-                      const isOut = payload.isOut;
+                      const hasViolations = payload.violations && payload.violations.length > 0;
                       return (
                         <circle 
-                          cx={cx} cy={cy} r={isOut ? 6 : 4} 
-                          fill={isOut ? "#f43f5e" : "#0ea5e9"} 
+                          cx={cx} cy={cy} r={hasViolations ? 6 : 4} 
+                          fill={hasViolations ? "#f43f5e" : "#0ea5e9"} 
                           stroke="#fff" strokeWidth={2} 
                         />
                       );

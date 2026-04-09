@@ -8,8 +8,26 @@ export const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
-  const { login, register, loginWithGoogle } = useAuth();
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const { login, register, loginWithGoogle, resetPassword } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) {
+      toast.error('請輸入電子郵件');
+      return;
+    }
+    setIsSubmitting(true);
+    const result = await resetPassword(email);
+    if (result.success) {
+      toast.success('密碼重設郵件已發送', { description: '請檢查您的收件匣。' });
+      setIsForgotPassword(false);
+    } else {
+      toast.error(result.error || '發送失敗');
+    }
+    setIsSubmitting(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +38,14 @@ export const Login: React.FC = () => {
       if (result.success) {
         toast.success('註冊並登入成功');
       } else {
-        toast.error(result.error || '註冊失敗');
+        const isAlreadyInUse = result.error?.includes('已被註冊');
+        toast.error(result.error || '註冊失敗', {
+          description: isAlreadyInUse ? '如果您之前曾刪除過帳號，請嘗試直接登入以重新啟用。' : undefined,
+          action: isAlreadyInUse ? {
+            label: '前往登入',
+            onClick: () => setIsRegistering(false)
+          } : undefined
+        });
       }
     } else {
       const result = await login(email, password);
@@ -45,8 +70,45 @@ export const Login: React.FC = () => {
         </div>
 
         <div className="glass-panel p-8 rounded-3xl shadow-xl">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {isRegistering && (
+          {isForgotPassword ? (
+            <form onSubmit={handleResetPassword} className="space-y-6">
+              <div>
+                <label htmlFor="reset-email" className="block text-sm font-medium text-slate-700 mb-2">
+                  電子郵件 (帳號)
+                </label>
+                <div className="relative">
+                  <input
+                    id="reset-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="請輸入您的電子郵件"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all pl-11"
+                    required
+                  />
+                  <LogIn className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-3 bg-brand-600 text-white rounded-xl font-bold hover:bg-brand-700 transition-all shadow-lg shadow-brand-200 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isSubmitting ? '處理中...' : '發送重設郵件'}
+              </button>
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => setIsForgotPassword(false)}
+                  className="text-sm text-slate-500 font-medium hover:underline"
+                >
+                  返回登入
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {isRegistering && (
               <div>
                 <label htmlFor="name" className="block text-sm font-medium text-slate-700 mb-2">
                   姓名
@@ -102,6 +164,18 @@ export const Login: React.FC = () => {
               </div>
             </div>
 
+            {!isRegistering && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsForgotPassword(true)}
+                  className="text-xs text-brand-600 font-medium hover:underline"
+                >
+                  忘記密碼？
+                </button>
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={isSubmitting}
@@ -148,6 +222,7 @@ export const Login: React.FC = () => {
               使用 Google 帳戶登入
             </button>
           </form>
+          )}
 
           <div className="mt-8 pt-6 border-t border-slate-100 text-center">
             <p className="text-xs text-slate-400">

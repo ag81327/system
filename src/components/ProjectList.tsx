@@ -106,6 +106,11 @@ export const ProjectList = () => {
         };
         await savePersistentProject(newProject);
         setProjects([newProject, ...projects]);
+        
+        // Notify all users about the new project
+        const { notifyAllUsers } = await import('../services/notificationService');
+        await notifyAllUsers('新專案建立', `新專案「${newProject.name}」已建立。`, '/projects');
+        
         toast.success('專案已建立');
       }
       setIsModalOpen(false);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { 
@@ -29,12 +29,14 @@ import { DataEntryModal } from './DataEntryModal';
 import { ExperimentModal } from './ExperimentModal';
 import { RichTextEditor } from './RichTextEditor';
 import { SpecificationManager } from './SpecificationManager';
+import { useAuth } from './AuthContext';
 import { TestItem, Experiment, Project, FormulationItem, ProcessCondition, ProcessConditionType, ProcessProfile, FormulationProfile, Sample, Attachment } from '../types';
 
 import { 
   getPersistentProjects, 
   getPersistentTestItems, 
   savePersistentTestItems, 
+  deletePersistentTestItem,
   getPersistentProfiles, 
   savePersistentProfiles,
   getPersistentSamples,
@@ -52,6 +54,7 @@ import {
 export const ExperimentDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { canAccessExperiment } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [experiment, setExperiment] = useState<Experiment | null>(null);
@@ -91,6 +94,11 @@ export const ExperimentDetail = () => {
         ]);
 
         if (exp) {
+          if (!canAccessExperiment(exp.projectId, exp.date)) {
+            toast.error('您無權限查看此日期的實驗紀錄');
+            navigate('/experiments');
+            return;
+          }
           setExperiment(exp);
           setFormulation(exp.formulation || []);
           setProcessConditions(exp.processConditions || []);
@@ -116,7 +124,7 @@ export const ExperimentDetail = () => {
       }
     };
     fetchData();
-  }, [id, navigate]);
+  }, [id, navigate, canAccessExperiment]);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [isExpModalOpen, setIsExpModalOpen] = useState(false);
   const [isSpecModalOpen, setIsSpecModalOpen] = useState(false);
@@ -154,11 +162,23 @@ export const ExperimentDetail = () => {
   };
 
   const handleUpdateFormulation = (id: string, field: keyof FormulationItem, value: any) => {
-    setFormulation(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+    const updatedFormulation = formulation.map(item => item.id === id ? { ...item, [field]: value } : item);
+    setFormulation(updatedFormulation);
+    if (experiment) {
+      const updatedExp = { ...experiment, formulation: updatedFormulation };
+      setExperiment(updatedExp);
+      savePersistentExperiment(updatedExp);
+    }
   };
 
   const handleRemoveFormulation = (id: string) => {
-    setFormulation(prev => prev.filter(item => item.id !== id));
+    const updatedFormulation = formulation.filter(item => item.id !== id);
+    setFormulation(updatedFormulation);
+    if (experiment) {
+      const updatedExp = { ...experiment, formulation: updatedFormulation };
+      setExperiment(updatedExp);
+      savePersistentExperiment(updatedExp);
+    }
   };
 
   const handleAddCondition = () => {
@@ -169,15 +189,33 @@ export const ExperimentDetail = () => {
       value: 0,
       unit: ''
     };
-    setProcessConditions([...processConditions, newCondition]);
+    const updatedConditions = [...processConditions, newCondition];
+    setProcessConditions(updatedConditions);
+    if (experiment) {
+      const updatedExp = { ...experiment, processConditions: updatedConditions };
+      setExperiment(updatedExp);
+      savePersistentExperiment(updatedExp);
+    }
   };
 
-  const handleUpdateCondition = (id: string, field: keyof ProcessCondition, value: any) => {
-    setProcessConditions(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c));
+  const handleUpdateCondition = async (id: string, field: keyof ProcessCondition, value: any) => {
+    const updatedConditions = processConditions.map(c => c.id === id ? { ...c, [field]: value } : c);
+    setProcessConditions(updatedConditions);
+    if (experiment) {
+      const updatedExp = { ...experiment, processConditions: updatedConditions };
+      setExperiment(updatedExp);
+      await savePersistentExperiment(updatedExp);
+    }
   };
 
-  const handleRemoveCondition = (id: string) => {
-    setProcessConditions(prev => prev.filter(c => c.id !== id));
+  const handleRemoveCondition = async (id: string) => {
+    const updatedConditions = processConditions.filter(c => c.id !== id);
+    setProcessConditions(updatedConditions);
+    if (experiment) {
+      const updatedExp = { ...experiment, processConditions: updatedConditions };
+      setExperiment(updatedExp);
+      await savePersistentExperiment(updatedExp);
+    }
   };
 
   const handleSaveProfile = () => {
@@ -225,11 +263,17 @@ export const ExperimentDetail = () => {
     });
   };
 
-  const handleLoadProfile = (profileId: string) => {
+  const handleLoadProfile = async (profileId: string) => {
     const profile = profiles.find(p => p.id === profileId);
     if (profile) {
-      setProcessConditions([...profile.conditions]);
+      const newConditions = [...profile.conditions];
+      setProcessConditions(newConditions);
       setActiveProfileName(profile.name);
+      if (experiment) {
+        const updatedExp = { ...experiment, processConditions: newConditions };
+        setExperiment(updatedExp);
+        await savePersistentExperiment(updatedExp);
+      }
       setIsProfileDropdownOpen(false);
       toast.success(`已載入製程設定檔: ${profile.name}`);
     }
@@ -476,23 +520,58 @@ export const ExperimentDetail = () => {
     toast.success(`已新增測試項目: ${name}`);
   };
 
-  const handleAddTestItem = () => {
-    setPromptConfig({
-      isOpen: true,
-      title: '新增測試項目',
-      message: '請輸入測試項目資訊:',
-      type: 'multi-input',
-      inputs: [
-        { label: '項目名稱', value: '', key: 'name' },
-        { label: '單位', value: '', key: 'unit' }
-      ],
-      onConfirm: async (values) => {
-        const { name, unit } = values;
-        if (name) {
-          await performAddTestItem(name, unit);
-        }
+  const performAddTestItemFromMaster = async (item: TestItem) => {
+    const updatedSamples = samples.map(s => ({
+      ...s,
+      results: [...(s.results || []), {
+        id: `res${Date.now()}${s.id}`,
+        sampleId: s.id,
+        testItemId: item.id,
+        rawValues: [],
+        mean: 0,
+        stdDev: 0,
+        max: 0,
+        min: 0,
+        status: 'Pending' as const,
+        isAnomaly: false
+      }]
+    }));
+    setSamples(updatedSamples);
+    await savePersistentSamples(id || 'e1', updatedSamples);
+    toast.success(`已加入測試項目: ${item.name}`);
+  };
+
+  const performAddTestItemToSample = async (sampleId: string, item: TestItem) => {
+    const updatedSamples = samples.map(s => {
+      if (s.id === sampleId) {
+        return {
+          ...s,
+          results: [...(s.results || []), {
+            id: `res${Date.now()}${s.id}`,
+            sampleId: s.id,
+            testItemId: item.id,
+            rawValues: [],
+            mean: 0,
+            stdDev: 0,
+            max: 0,
+            min: 0,
+            status: 'Pending' as const,
+            isAnomaly: false
+          }]
+        };
       }
+      return s;
     });
+    setSamples(updatedSamples);
+    await savePersistentSamples(id || 'e1', updatedSamples);
+    toast.success(`已為樣品加入測試項目: ${item.name}`);
+  };
+
+  const [isTestItemModalOpen, setIsTestItemModalOpen] = useState(false);
+  const [isTestItemManagementModalOpen, setIsTestItemManagementModalOpen] = useState(false);
+
+  const handleAddTestItem = () => {
+    setIsTestItemModalOpen(true);
   };
 
   const handleRemoveTestItem = (itemId: string) => {
@@ -1245,12 +1324,20 @@ export const ExperimentDetail = () => {
               <div className="w-1 h-6 bg-brand-500 rounded-full"></div>
               <h3 className="text-xl font-bold text-slate-900">鏡片特性分析</h3>
             </div>
-            <button 
-              onClick={handleAddTestItem}
-              className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-brand-600"
-            >
-              <Plus className="w-3 h-3" /> 自定義測試項目
-            </button>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setIsTestItemManagementModalOpen(true)}
+                className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:underline"
+              >
+                <Settings2 className="w-3 h-3" /> 測試項目管理
+              </button>
+              <button 
+                onClick={handleAddTestItem}
+                className="flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-brand-600"
+              >
+                <Plus className="w-3 h-3" /> 新增測試項目
+              </button>
+            </div>
           </div>
 
           {samples.map((sample, sIdx) => (
@@ -1270,7 +1357,7 @@ export const ExperimentDetail = () => {
                     <p className="text-sm font-medium text-slate-600">{sample.moldBatchNumber || '-'}</p>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
                   <button 
                     onClick={() => handleEditSample(sample.id)}
                     className="p-2 text-slate-400 hover:text-brand-600 hover:bg-white rounded-lg transition-all"
@@ -1515,9 +1602,132 @@ export const ExperimentDetail = () => {
         initialData={experiment}
       />
 
+      {/* Test Item Selection Modal */}
+      {isTestItemModalOpen && (
+        <TestItemAddModal 
+          isOpen={isTestItemModalOpen}
+          onClose={() => setIsTestItemModalOpen(false)}
+          testItems={testItems}
+          onSelectExisting={async (item) => {
+            await performAddTestItemFromMaster(item);
+            setIsTestItemModalOpen(false);
+          }}
+        />
+      )}
+
+      {/* Test Item Management Modal */}
+      {isTestItemManagementModalOpen && (
+        <TestItemManagementModal
+          isOpen={isTestItemManagementModalOpen}
+          onClose={() => setIsTestItemManagementModalOpen(false)}
+          testItems={testItems}
+          onCreateNew={async (name, unit) => {
+            await performAddTestItem(name, unit);
+          }}
+          onUpdateItem={async (itemId, name, unit) => {
+            try {
+              const oldItem = testItems.find(t => t.id === itemId);
+              if (!oldItem) return;
+
+              // 1. Update master list
+              const updatedItems = testItems.map(t => 
+                t.id === itemId ? { ...t, name, unit } : t
+              );
+              setTestItems(updatedItems);
+              await savePersistentTestItems(updatedItems);
+
+              // 2. Update all projects' specifications
+              const updatedProjects = projects.map(proj => {
+                if (!proj.specs || !proj.specs[itemId]) return proj;
+                return {
+                  ...proj,
+                  specs: {
+                    ...proj.specs,
+                    [itemId]: { ...proj.specs[itemId], name, unit }
+                  }
+                };
+              });
+              
+              for (const proj of updatedProjects) {
+                const originalProj = projects.find(p => p.id === proj.id);
+                if (proj.specs !== originalProj?.specs) {
+                  await savePersistentProject(proj);
+                }
+              }
+              setProjects(updatedProjects);
+
+              // 3. Update current experiment and samples if they use this item
+              // (The item name/unit in samples is usually derived from testItems, but if it's stored, we update it)
+              toast.success(`測試項目 "${name}" 已更新`);
+            } catch (error) {
+              console.error('Failed to update test item:', error);
+              toast.error('更新失敗');
+            }
+          }}
+          onDeleteItem={async (itemId) => {
+            const item = testItems.find(t => t.id === itemId);
+            if (!item) return;
+            
+            setPromptConfig({
+              isOpen: true,
+              title: '永久刪除測試項目',
+              message: `確定要從系統中永久刪除 "${item.name}" 嗎？\n這將會移除所有專案規格中的此項設定。`,
+              type: 'confirm',
+              onConfirm: async () => {
+                try {
+                  // Find all items with the same name to clean up duplicates
+                  const itemsToDelete = testItems.filter(t => t.name === item.name);
+                  const idsToDelete = itemsToDelete.map(t => t.id);
+                  
+                  // 1. Delete from master list
+                  await Promise.all(idsToDelete.map(t => deletePersistentTestItem(t)));
+                  
+                  // 2. Clean up from all projects' specifications
+                  const updatedProjects = projects.map(proj => {
+                    if (!proj.specs) return proj;
+                    
+                    let hasChanges = false;
+                    const newSpecs = { ...proj.specs };
+                    
+                    idsToDelete.forEach(id => {
+                      if (newSpecs[id]) {
+                        delete newSpecs[id];
+                        hasChanges = true;
+                      }
+                    });
+                    
+                    return hasChanges ? { ...proj, specs: newSpecs } : proj;
+                  });
+                  
+                  // Save updated projects to persistence
+                  for (const proj of updatedProjects) {
+                    const originalProj = projects.find(p => p.id === proj.id);
+                    if (proj.specs !== originalProj?.specs) {
+                      await savePersistentProject(proj);
+                    }
+                  }
+                  
+                  setProjects(updatedProjects);
+                  
+                  // 3. Update master list in state and persistence
+                  const finalMasterItems = testItems.filter(t => t.name !== item.name);
+                  setTestItems(finalMasterItems);
+                  await savePersistentTestItems(finalMasterItems);
+                  
+                  toast.success(`已從系統徹底刪除測試項目 "${item.name}" 並清理相關專案設定`);
+                } catch (error) {
+                  console.error('Failed to delete test item(s):', error);
+                  toast.error('刪除失敗');
+                }
+              }
+            });
+          }}
+        />
+      )}
+
       {/* Generic Prompt Modal */}
       {promptConfig.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="p-6 border-b border-slate-100">
               <h3 className="text-lg font-bold text-slate-900">{promptConfig.title}</h3>
@@ -1576,6 +1786,254 @@ export const ExperimentDetail = () => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+interface TestItemAddModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  testItems: TestItem[];
+  onSelectExisting: (item: TestItem) => Promise<void>;
+}
+
+const TestItemAddModal = ({ isOpen, onClose, testItems, onSelectExisting }: TestItemAddModalProps) => {
+  const [selectedId, setSelectedId] = useState('');
+
+  // Filter unique test items by name for the dropdown
+  const uniqueTestItems = useMemo(() => {
+    const seen = new Set();
+    return testItems.filter(item => {
+      if (seen.has(item.name)) return false;
+      seen.add(item.name);
+      return true;
+    });
+  }, [testItems]);
+
+  if (!isOpen) return null;
+
+  const handleSelect = async () => {
+    if (!selectedId) {
+      toast.error('請先選擇一個項目');
+      return;
+    }
+    const item = testItems.find(t => t.id === selectedId);
+    if (item) {
+      await onSelectExisting(item);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">新增測試項目</h3>
+            <p className="text-xs text-slate-500 mt-1">從現有項目庫中選取要加入此實驗的項目。</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+        <div className="p-6 space-y-6">
+          <div className="space-y-3">
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">選擇現有項目</label>
+            <select 
+              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-brand-500 outline-none transition-all"
+              value={selectedId}
+              onChange={(e) => setSelectedId(e.target.value)}
+            >
+              <option value="">請選擇...</option>
+              {uniqueTestItems.map(item => (
+                <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+              ))}
+            </select>
+            <button 
+              onClick={handleSelect}
+              disabled={!selectedId}
+              className="w-full py-3 bg-brand-600 text-white rounded-xl text-sm font-bold hover:bg-brand-700 transition-all shadow-lg shadow-brand-200 disabled:opacity-50 disabled:shadow-none mt-2"
+            >
+              確認加入
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface TestItemManagementModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  testItems: TestItem[];
+  onCreateNew: (name: string, unit: string) => Promise<void>;
+  onUpdateItem: (itemId: string, name: string, unit: string) => Promise<void>;
+  onDeleteItem: (itemId: string) => Promise<void>;
+}
+
+const TestItemManagementModal = ({ isOpen, onClose, testItems, onCreateNew, onUpdateItem, onDeleteItem }: TestItemManagementModalProps) => {
+  const [name, setName] = useState('');
+  const [unit, setUnit] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Filter unique test items by name for the list
+  const uniqueTestItems = useMemo(() => {
+    const seen = new Set();
+    return testItems.filter(item => {
+      if (seen.has(item.name)) return false;
+      seen.add(item.name);
+      return true;
+    });
+  }, [testItems]);
+
+  if (!isOpen) return null;
+
+  const handleCreate = async () => {
+    if (!name) {
+      toast.error('請輸入項目名稱');
+      return;
+    }
+    setIsSubmitting(true);
+    if (editingId) {
+      await onUpdateItem(editingId, name, unit);
+      setEditingId(null);
+    } else {
+      await onCreateNew(name, unit);
+    }
+    setName('');
+    setUnit('');
+    setIsSubmitting(false);
+  };
+
+  const startEdit = (item: TestItem) => {
+    setEditingId(item.id);
+    setName(item.name);
+    setUnit(item.unit || '');
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setName('');
+    setUnit('');
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">測試項目管理</h3>
+            <p className="text-xs text-slate-500 mt-1">管理系統中所有可用的測試項目及其單位。</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-8">
+          {/* Create/Edit Section */}
+          <div className={cn(
+            "p-6 rounded-2xl border transition-all space-y-4",
+            editingId ? "bg-amber-50/30 border-amber-100" : "bg-brand-50/30 border-brand-100"
+          )}>
+            <h4 className={cn(
+              "text-sm font-bold flex items-center gap-2",
+              editingId ? "text-amber-900" : "text-brand-900"
+            )}>
+              {editingId ? <Edit3 className="w-4 h-4" /> : <Plus className="w-4 h-4" />} 
+              {editingId ? '編輯測試項目' : '建立新測試項目'}
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">項目名稱</label>
+                <input 
+                  type="text" 
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="例如: 拉伸強度"
+                  className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">單位</label>
+                <input 
+                  type="text" 
+                  value={unit}
+                  onChange={(e) => setUnit(e.target.value)}
+                  placeholder="例如: MPa"
+                  className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button 
+                onClick={handleCreate}
+                disabled={isSubmitting || !name}
+                className={cn(
+                  "flex-1 py-2.5 text-white rounded-xl text-sm font-bold transition-all shadow-lg disabled:opacity-50",
+                  editingId ? "bg-amber-500 hover:bg-amber-600 shadow-amber-200" : "bg-brand-600 hover:bg-brand-700 shadow-brand-200"
+                )}
+              >
+                {isSubmitting ? '處理中...' : editingId ? '儲存修改' : '建立並加入系統庫'}
+              </button>
+              {editingId && (
+                <button 
+                  onClick={cancelEdit}
+                  className="px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all"
+                >
+                  取消編輯
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Existing Items List */}
+          <div className="space-y-4">
+            <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <FlaskConical className="w-4 h-4 text-slate-400" /> 系統現有項目庫 ({uniqueTestItems.length})
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {uniqueTestItems.map(item => (
+                <div key={item.id} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl hover:border-brand-200 transition-all group">
+                  <div>
+                    <p className="text-sm font-bold text-slate-700">{item.name}</p>
+                    <p className="text-[10px] text-slate-400">單位: {item.unit || '無'}</p>
+                  </div>
+                  <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
+                    <button 
+                      onClick={() => startEdit(item)}
+                      className="p-2 text-slate-300 hover:text-amber-500 hover:bg-amber-50 rounded-lg transition-all"
+                      title="編輯"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => onDeleteItem(item.id)}
+                      className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                      title="刪除"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {uniqueTestItems.length === 0 && (
+                <div className="col-span-full py-8 text-center text-xs text-slate-400 italic">尚未建立任何測試項目</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+          <button 
+            onClick={onClose}
+            className="px-6 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-bold hover:bg-slate-50 transition-all"
+          >
+            關閉
+          </button>
+        </div>
+      </div>
     </div>
   );
 };

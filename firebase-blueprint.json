@@ -9,9 +9,12 @@
         "email": { "type": "string", "format": "email" },
         "name": { "type": "string" },
         "role": { "type": "string", "enum": ["Admin", "User"] },
-        "avatar": { "type": "string" }
+        "avatar": { "type": "string" },
+        "isApproved": { "type": "boolean" },
+        "accessStartDate": { "type": "string" },
+        "accessEndDate": { "type": "string" }
       },
-      "required": ["id", "email", "name", "role"]
+      "required": ["id", "email", "name", "role", "isApproved"]
     },
     "UserPermission": {
       "title": "UserPermission",
@@ -19,7 +22,8 @@
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
-        "projectIds": { "type": "array", "items": { "type": "string" } }
+        "projectIds": { "type": "array", "items": { "type": "string" } },
+        "projectAccessLimits": { "type": "object", "description": "Map of projectId to {startDate, endDate}" }
       },
       "required": ["userId", "projectIds"]
     },
@@ -167,6 +171,22 @@
         "authorId": { "type": "string" }
       },
       "required": ["id", "title", "date", "time", "authorId"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System notification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "warning", "success", "alert"] },
+        "link": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "read": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "title", "message", "type", "createdAt", "read"]
     }
   },
   "firestore": {
@@ -217,6 +237,10 @@
     "/calendarEvents/{eventId}": {
       "schema": "CalendarEvent",
       "description": "Calendar events"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "System notifications"
     }
   }
 }

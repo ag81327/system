@@ -46,7 +46,16 @@ export const saveDocument = async <T extends { id?: string }>(path: string, data
   try {
     const id = data.id || doc(collection(db, path)).id;
     const docRef = doc(db, path, id);
-    await setDoc(docRef, { ...data, id }, { merge: true });
+    
+    // Strip undefined values to prevent Firestore errors
+    const cleanData = Object.entries(data).reduce((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {} as any);
+
+    await setDoc(docRef, { ...cleanData, id }, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -117,6 +126,7 @@ export const firebaseService = {
   saveProcessProfile: (profile: ProcessProfile) => saveDocument('processProfiles', profile),
   getFormulationProfiles: () => getCollection<FormulationProfile>('formulationProfiles'),
   saveFormulationProfile: (profile: FormulationProfile) => saveDocument('formulationProfiles', profile),
+  deleteTestItem: (id: string) => removeDocument('testItems', id),
 
   // Attachments
   getAttachments: (parentId: string) => {

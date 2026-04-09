@@ -5,7 +5,8 @@ import {
   getPersistentExperiments, 
   getPersistentProjects, 
   savePersistentExperiment, 
-  deletePersistentExperiment 
+  deletePersistentExperiment,
+  getPersistentUsers
 } from '../lib/persistence';
 import { 
   Beaker, 
@@ -19,21 +20,33 @@ import {
   Clock,
   Edit3,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  LayoutGrid,
+  Check,
+  X,
+  Lock,
+  Shield,
+  Users
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { Experiment } from '../types';
+import { Experiment, User as AppUser } from '../types';
 import { ExperimentModal } from './ExperimentModal';
 import { useAuth } from './AuthContext';
+import { useComparison } from './ComparisonContext';
+import { motion, AnimatePresence } from 'motion/react';
 
 export const ExperimentList = () => {
   const navigate = useNavigate();
-  const { canAccessProject } = useAuth();
+  const { canAccessProject, canAccessExperiment, user } = useAuth();
+  const { addToComparison, removeFromComparison, isInComparison, selectedExperiments } = useComparison();
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
+  const [users, setUsers] = useState<AppUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [editingExperiment, setEditingExperiment] = useState<Experiment | undefined>(undefined);
+  const [permissionExperiment, setPermissionExperiment] = useState<Experiment | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'Draft' | 'Completed'>('all');
@@ -45,12 +58,14 @@ export const ExperimentList = () => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        const [expsData, projsData] = await Promise.all([
+        const [expsData, projsData, usersData] = await Promise.all([
           getPersistentExperiments(),
-          getPersistentProjects()
+          getPersistentProjects(),
+          getPersistentUsers()
         ]);
         setExperiments(expsData);
         setProjects(projsData);
+        setUsers(usersData.filter(u => u.role !== 'Admin')); // Only show non-admins for permission management
       } catch (error) {
         console.error('Error fetching experiments:', error);
         toast.error('讀取數據失敗');
@@ -62,8 +77,16 @@ export const ExperimentList = () => {
   }, []);
 
   const accessibleExperiments = useMemo(() => 
-    experiments.filter(exp => canAccessProject(exp.projectId)),
-    [experiments, canAccessProject]
+    experiments.filter(exp => {
+      const basicAccess = canAccessProject(exp.projectId) && canAccessExperiment(exp.projectId, exp.date);
+      if (!basicAccess) return false;
+      if (user?.role === 'Admin') return true;
+      if (exp.visibleTo && exp.visibleTo.length > 0) {
+        return exp.visibleTo.includes(user?.id || '');
+      }
+      return true;
+    }),
+    [experiments, canAccessProject, canAccessExperiment, user]
   );
 
   const handleAddExperiment = () => {
@@ -109,6 +132,24 @@ export const ExperimentList = () => {
         };
         await savePersistentExperiment(newExp);
         setExperiments([newExp, ...experiments]);
+        
+        // Notify users who have access to this project
+        const { createNotification } = await import('../services/notificationService');
+        const { getPersistentPermissions } = await import('../lib/persistence');
+        const allPermissions = await getPersistentPermissions();
+        const usersWithAccess = allPermissions.filter(p => p.projectIds.includes(newExp.projectId));
+        
+        const promises = usersWithAccess.map(p => 
+          createNotification({
+            userId: p.userId,
+            title: '新實驗紀錄',
+            message: `專案中有新的實驗紀錄: ${newExp.title}`,
+            type: 'info',
+            link: `/experiments/${newExp.id}`
+          })
+        );
+        await Promise.all(promises);
+
         toast.success('實驗紀錄已建立');
       }
       setIsModalOpen(false);
@@ -129,6 +170,35 @@ export const ExperimentList = () => {
     
     return matchesSearch && matchesStatus && matchesDate;
   });
+
+  const handleToggleComparison = (e: React.MouseEvent, exp: Experiment) => {
+    e.stopPropagation();
+    if (isInComparison(exp.id)) {
+      removeFromComparison(exp.id);
+    } else {
+      addToComparison(exp);
+    }
+  };
+
+  const handleOpenPermissions = (e: React.MouseEvent, exp: Experiment) => {
+    e.stopPropagation();
+    setPermissionExperiment(exp);
+    setIsPermissionModalOpen(true);
+  };
+
+  const handleSavePermissions = async (userIds: string[]) => {
+    if (!permissionExperiment) return;
+    try {
+      const updatedExp = { ...permissionExperiment, visibleTo: userIds };
+      await savePersistentExperiment(updatedExp);
+      setExperiments(experiments.map(e => e.id === updatedExp.id ? updatedExp : e));
+      toast.success('存取權限已更新');
+      setIsPermissionModalOpen(false);
+    } catch (error) {
+      console.error('Error saving permissions:', error);
+      toast.error('更新權限失敗');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -333,6 +403,32 @@ export const ExperimentList = () => {
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button 
+                          onClick={(e) => handleToggleComparison(e, exp)}
+                          className={cn(
+                            "p-2 rounded-lg transition-all",
+                            isInComparison(exp.id) 
+                              ? "bg-brand-600 text-white shadow-md" 
+                              : "text-slate-400 hover:text-brand-600 hover:bg-brand-50"
+                          )}
+                          title={isInComparison(exp.id) ? "從比對中移除" : "加入比對"}
+                        >
+                          {isInComparison(exp.id) ? <Check className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
+                        </button>
+                        {user?.role === 'Admin' && (
+                          <button 
+                            onClick={(e) => handleOpenPermissions(e, exp)}
+                            className={cn(
+                              "p-2 rounded-lg transition-all",
+                              exp.visibleTo && exp.visibleTo.length > 0 
+                                ? "text-amber-600 bg-amber-50 hover:bg-amber-100" 
+                                : "text-slate-400 hover:text-brand-600 hover:bg-brand-50"
+                            )}
+                            title="存取權限管理"
+                          >
+                            <Lock className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button 
                           onClick={(e) => handleEditExperiment(e, exp)}
                           className="p-2 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-all"
                           title="編輯"
@@ -373,6 +469,93 @@ export const ExperimentList = () => {
         initialData={editingExperiment}
       />
 
+      {/* Permission Management Modal */}
+      <AnimatePresence>
+        {isPermissionModalOpen && permissionExperiment && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+            >
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">存取權限管理</h3>
+                  <p className="text-xs text-slate-500 mt-1">{permissionExperiment.title}</p>
+                </div>
+                <button onClick={() => setIsPermissionModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+              <div className="p-6">
+                <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">選擇可查看的人員</p>
+                  {users.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400">
+                      <Users className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                      <p className="text-sm">尚無其他人員帳號</p>
+                    </div>
+                  ) : (
+                    users.map(u => {
+                      const isSelected = permissionExperiment.visibleTo?.includes(u.id);
+                      return (
+                        <button
+                          key={u.id}
+                          onClick={() => {
+                            const currentVisibleTo = permissionExperiment.visibleTo || [];
+                            const newVisibleTo = isSelected 
+                              ? currentVisibleTo.filter(id => id !== u.id)
+                              : [...currentVisibleTo, u.id];
+                            setPermissionExperiment({ ...permissionExperiment, visibleTo: newVisibleTo });
+                          }}
+                          className={cn(
+                            "w-full p-3 rounded-xl border-2 flex items-center justify-between transition-all",
+                            isSelected ? "border-brand-500 bg-brand-50" : "border-slate-100 hover:border-slate-200"
+                          )}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", isSelected ? "bg-brand-500 text-white" : "bg-slate-100 text-slate-400")}>
+                              <User className="w-4 h-4" />
+                            </div>
+                            <div className="text-left">
+                              <p className={cn("text-sm font-bold", isSelected ? "text-brand-700" : "text-slate-700")}>{u.name}</p>
+                              <p className="text-[10px] text-slate-400">{u.email}</p>
+                            </div>
+                          </div>
+                          {isSelected && <Check className="w-4 h-4 text-brand-500" />}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+                
+                <div className="mt-6 p-4 bg-amber-50 rounded-xl border border-amber-100 flex gap-3">
+                  <Shield className="w-5 h-5 text-amber-500 shrink-0" />
+                  <p className="text-[11px] text-amber-700 leading-relaxed">
+                    <strong>提示：</strong> 若未勾選任何人員，則該實驗紀錄預設對所有擁有專案存取權限的人員可見。勾選後，僅限被勾選的人員與管理員可查看。
+                  </p>
+                </div>
+              </div>
+              <div className="p-4 bg-slate-50 flex justify-end gap-3">
+                <button
+                  onClick={() => setIsPermissionModalOpen(false)}
+                  className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => handleSavePermissions(permissionExperiment.visibleTo || [])}
+                  className="px-6 py-2 bg-brand-600 text-white rounded-lg text-sm font-bold hover:bg-brand-700 shadow-lg shadow-brand-200"
+                >
+                  儲存權限
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
@@ -404,6 +587,56 @@ export const ExperimentList = () => {
           </div>
         </div>
       )}
+
+      {/* Comparison Basket Floating UI */}
+      <AnimatePresence>
+        {selectedExperiments.length > 0 && (
+          <motion.div 
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 w-full max-w-lg px-4"
+          >
+            <div className="bg-slate-900 text-white rounded-2xl shadow-2xl shadow-brand-200/20 p-4 flex items-center justify-between gap-6 border border-slate-800">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-brand-600 rounded-xl flex items-center justify-center">
+                  <LayoutGrid className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold">數據比對籃</p>
+                  <p className="text-[10px] text-slate-400">已選擇 {selectedExperiments.length} 筆實驗 (最多 5 筆)</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3">
+                <div className="flex -space-x-2 overflow-hidden">
+                  {selectedExperiments.map(exp => (
+                    <div 
+                      key={exp.id} 
+                      className="w-8 h-8 rounded-full bg-slate-800 border-2 border-slate-900 flex items-center justify-center text-[10px] font-bold"
+                      title={exp.title}
+                    >
+                      {exp.title.charAt(0)}
+                    </div>
+                  ))}
+                </div>
+                <button 
+                  onClick={() => navigate('/comparison')}
+                  className="px-6 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-brand-900/50"
+                >
+                  開始比對
+                </button>
+                <button 
+                  onClick={() => removeFromComparison(selectedExperiments[selectedExperiments.length - 1].id)}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  <X className="w-4 h-4 text-slate-400" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

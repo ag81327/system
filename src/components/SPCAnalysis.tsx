@@ -1,17 +1,26 @@
 import React, { useMemo, useState } from 'react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend,
-  BarChart, Bar, Cell, ComposedChart, Area
+  BarChart, Bar, Cell, ComposedChart, Area, Scatter, Brush
 } from 'recharts';
 import { 
   Info, Activity, AlertTriangle, CheckCircle2, TrendingUp, BarChart3, 
   Settings, Download, Share2, Filter, LayoutGrid, List, PieChart,
-  Plus, Trash2, BellRing, X as CloseIcon, Maximize2
+  Plus, Trash2, BellRing, X as CloseIcon, Maximize2, Zap, FileText
 } from 'lucide-react';
+import { generatePDFReport } from '../lib/reportUtils';
 import { Experiment, TestItem, Project } from '../types';
 import { cn, generateMockResults } from '../lib/utils';
 import { getPersistentSamples } from '../lib/persistence';
 import { toast } from 'sonner';
+import { 
+  calculateStats, 
+  calculateCapability, 
+  detectNelsonRules, 
+  generateHistogramData, 
+  generateNormalCurve,
+  NelsonRule
+} from '../lib/statsUtils';
 
 interface SPCAnalysisProps {
   project: Project;
@@ -24,7 +33,16 @@ interface SPCAnalysisProps {
 type ChartType = 'Xbar' | 'Xbar-R' | 'X' | 'P' | 'NP' | 'C' | 'U' | 'EWMA' | 'CUSUM';
 
 export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimentId = 'all', timeRange = '30' }: SPCAnalysisProps) => {
-  const [selectedTestItemId, setSelectedTestItemId] = useState(testItems[0]?.id || '');
+  const uniqueTestItems = useMemo(() => {
+    const seen = new Set();
+    return testItems.filter(item => {
+      if (seen.has(item.name)) return false;
+      seen.add(item.name);
+      return true;
+    });
+  }, [testItems]);
+
+  const [selectedTestItemId, setSelectedTestItemId] = useState(uniqueTestItems[0]?.id || '');
   const [allSamplesMap, setAllSamplesMap] = useState<Record<string, any[]>>({});
   const [isLoading, setIsLoading] = useState(true);
 
@@ -52,10 +70,10 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
   }, [experiments]);
 
   React.useEffect(() => {
-    if (testItems.length > 0 && (!selectedTestItemId || !testItems.some(i => i.id === selectedTestItemId))) {
-      setSelectedTestItemId(testItems[0].id);
+    if (uniqueTestItems.length > 0 && (!selectedTestItemId || !uniqueTestItems.some(i => i.id === selectedTestItemId))) {
+      setSelectedTestItemId(uniqueTestItems[0].id);
     }
-  }, [testItems, selectedTestItemId]);
+  }, [uniqueTestItems, selectedTestItemId]);
   const [chartType, setChartType] = useState<ChartType>('Xbar');
   const [isCauseModalOpen, setIsCauseModalOpen] = useState(false);
   const [isNotifyModalOpen, setIsNotifyModalOpen] = useState(false);
@@ -110,7 +128,8 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
       }
     }
     
-    if (projectExperiments.length === 0 || !selectedTestItemId) return [];
+    const selectedItem = testItems.find(t => t.id === selectedTestItemId);
+    if (!selectedItem) return [];
 
     // Base data generation from real samples
     const allSamplesData: any[] = [];
@@ -118,8 +137,13 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
     projectExperiments.forEach((exp) => {
       const samples = allSamplesMap[exp.id] || [];
       
+      // Group samples by batch if needed, or just fix the code bug
       samples.forEach((sample) => {
-        const result = sample.results.find((r: any) => r.testItemId === selectedTestItemId);
+        // Find result by name to handle duplicate items with same name
+        const result = sample.results.find((r: any) => {
+          const item = testItems.find(t => t.id === r.testItemId);
+          return item?.name === selectedItem.name;
+        });
         
         // Use real mean if available
         let mean = result?.mean || 0;
@@ -135,8 +159,8 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
           const defects = sample.defects?.length || 0;
           
           allSamplesData.push({
-            batch: `${exp.title} - ${sample.code}`,
-            sampleCode: sample.code,
+            batch: `${exp.title} - ${sample.sampleCode || sample.code || '未命名'}`,
+            sampleCode: sample.sampleCode || sample.code,
             value: mean,
             mean: mean,
             range: range,
@@ -172,12 +196,14 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
 
     // Control Limits (Simplified 3-sigma)
     let UCL = overallMean + 3 * stdDev;
-    let LCL = Math.max(0, overallMean - 3 * stdDev);
+    let LCL = overallMean - 3 * stdDev;
 
     // EWMA / CUSUM specific logic
     let ewmaValue = overallMean;
     let cusumValue = 0;
     const lambda = 0.2;
+
+    const nelsonViolations = detectNelsonRules(values, overallMean, stdDev);
 
     return baseData.map((d, i) => {
       const currentVal = values[i];
@@ -188,6 +214,8 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
       // CUSUM calculation
       cusumValue += (currentVal - overallMean);
 
+      const pointViolations = nelsonViolations.filter(v => v.index === i);
+
       return {
         ...d,
         displayValue: parseFloat(currentVal.toFixed(3)),
@@ -196,7 +224,9 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
         CL: parseFloat(overallMean.toFixed(3)),
         UCL: parseFloat(UCL.toFixed(3)),
         LCL: parseFloat(LCL.toFixed(3)),
-        isOut: currentVal > UCL || currentVal < LCL
+        range: [parseFloat(LCL.toFixed(3)), parseFloat(UCL.toFixed(3))],
+        isOut: currentVal > UCL || currentVal < LCL,
+        violations: pointViolations.map(v => v.rule)
       };
     });
   }, [project?.id, experiments, selectedTestItemId, chartType, selectedExperimentId, timeRange, allSamplesMap]);
@@ -204,24 +234,67 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
   const stats = useMemo(() => {
     if (spcData.length === 0) return null;
     const values = spcData.map(d => d.displayValue);
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    const max = Math.max(...values);
-    const min = Math.min(...values);
-    const std = Math.sqrt(values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (values.length - 1 || 1));
+    const basicStats = calculateStats(values);
     
     // Cp/Cpk calculation
     const spec = project?.specs?.[selectedTestItemId];
-    let cp = 0, cpk = 0;
-    if (spec?.min !== undefined && spec?.max !== undefined) {
-      cp = (spec.max - spec.min) / (6 * std);
-      cpk = Math.min((spec.max - mean) / (3 * std), (mean - spec.min) / (3 * std));
-    }
+    const capability = calculateCapability(basicStats, spec?.min, spec?.max);
 
-    return { mean, max, min, std, cp, cpk, range: max - min };
+    return { ...basicStats, ...capability };
   }, [spcData, project?.specs, selectedTestItemId]);
+
+  const histogramData = useMemo(() => {
+    if (spcData.length === 0) return [];
+    const values = spcData.map(d => d.displayValue);
+    return generateHistogramData(values, 12);
+  }, [spcData]);
+
+  const histogramDomain = useMemo(() => {
+    if (spcData.length === 0) return [0, 100];
+    const values = spcData.map(d => d.displayValue);
+    let min = Math.min(...values);
+    let max = Math.max(...values);
+    
+    const spec = project?.specs?.[selectedTestItemId];
+    if (spec?.min !== undefined) min = Math.min(min, spec.min);
+    if (spec?.max !== undefined) max = Math.max(max, spec.max);
+    
+    const range = max - min;
+    const padding = range === 0 ? 1 : range * 0.15;
+    return [min - padding, max + padding];
+  }, [spcData, project?.specs, selectedTestItemId]);
+
+  const normalCurveData = useMemo(() => {
+    if (!stats || spcData.length === 0) return [];
+    const [min, max] = histogramDomain as [number, number];
+    return generateNormalCurve(stats.mean, stats.stdDev, min, max, 100);
+  }, [stats, spcData, histogramDomain]);
+
+  const combinedDistributionData = useMemo(() => {
+    const merged: any[] = [];
+    histogramData.forEach(bin => {
+      merged.push({ x: bin.binStart, count: bin.count });
+    });
+    normalCurveData.forEach(p => {
+      merged.push({ x: p.x, y: p.y });
+    });
+    return merged.sort((a, b) => a.x - b.x);
+  }, [histogramData, normalCurveData]);
 
   const selectedTestItem = testItems.find(t => t.id === selectedTestItemId);
   const outOfControlPoints = spcData.filter(d => d.isOut).length;
+
+  const handleExportPDF = async () => {
+    try {
+      toast.loading('正在生成報表...');
+      await generatePDFReport('spc-analysis-content', `SPC_Report_${project.name}_${selectedTestItem?.name || 'All'}`);
+      toast.dismiss();
+      toast.success('報表已生成');
+    } catch (error) {
+      toast.dismiss();
+      toast.error('報表生成失敗');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -232,7 +305,7 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
   }
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="space-y-8 pb-12" id="spc-analysis-content">
       {/* Header & Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
         <div>
@@ -248,7 +321,7 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
               onChange={(e) => setSelectedTestItemId(e.target.value)}
               className="bg-transparent text-sm font-bold text-slate-600 outline-none flex-1"
             >
-              {testItems.map(item => (
+              {uniqueTestItems.map(item => (
                 <option key={item.id} value={item.id}>{item.name}</option>
               ))}
             </select>
@@ -279,6 +352,15 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
             </select>
           </div>
 
+          <button 
+            onClick={handleExportPDF}
+            className="p-2 bg-white border border-slate-200 text-slate-400 hover:text-brand-600 rounded-xl transition-all shadow-sm flex items-center gap-2"
+            title="匯出 PDF 報表"
+          >
+            <FileText className="w-5 h-5" />
+            <span className="text-xs font-bold hidden sm:inline">報表</span>
+          </button>
+
           <button className="p-2 bg-white border border-slate-200 text-slate-400 hover:text-brand-600 rounded-xl transition-all shadow-sm">
             <Download className="w-5 h-5" />
           </button>
@@ -301,8 +383,8 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">標準差 (Std Dev)</p>
             <TrendingUp className="w-4 h-4 text-indigo-500" />
           </div>
-          <p className="text-2xl font-bold text-slate-900">{stats?.std.toFixed(4)}</p>
-          <p className="text-[10px] text-slate-400 mt-1">變異係數: {((stats?.std || 0) / (stats?.mean || 1) * 100).toFixed(2)}%</p>
+          <p className="text-2xl font-bold text-slate-900">{stats?.stdDev.toFixed(4)}</p>
+          <p className="text-[10px] text-slate-400 mt-1">變異係數: {((stats?.stdDev || 0) / (stats?.mean || 1) * 100).toFixed(2)}%</p>
         </div>
 
         <div className="glass-panel p-6 rounded-2xl border-l-4 border-l-emerald-500">
@@ -338,7 +420,7 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
                 <h3 className="text-lg font-bold text-slate-900">
                   {chartType} 管制圖 - {selectedTestItem?.name}
                 </h3>
-                <p className="text-xs text-slate-500">動態顯示資料點資訊與管制界限</p>
+                <p className="text-xs text-slate-500">Nelson Rules 趨勢監控與異常偵測</p>
               </div>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-1.5">
@@ -382,22 +464,30 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
                       if (active && payload && payload.length) {
                         const data = payload[0].payload;
                         return (
-                          <div className="bg-white p-4 rounded-xl shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-200">
+                          <div className="bg-white p-4 rounded-xl shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-200 min-w-[200px]">
                             <p className="text-xs font-bold text-slate-900 mb-2">
                               {data.batch}
                               {data.isMock && <span className="ml-2 px-1.5 py-0.5 bg-slate-100 text-slate-400 text-[8px] rounded">模擬數據</span>}
                             </p>
-                            <div className="space-y-1">
-                              <p className="text-[10px] text-slate-500 flex justify-between gap-4">
-                                <span>量測值:</span> <span className="font-bold text-slate-900">{data.displayValue}</span>
-                              </p>
-                              <p className="text-[10px] text-slate-500 flex justify-between gap-4">
-                                <span>日期:</span> <span className="font-medium">{data.date}</span>
-                              </p>
-                              {data.isOut && (
-                                <p className="text-[10px] text-rose-500 font-bold mt-2 flex items-center gap-1">
-                                  <AlertTriangle className="w-3 h-3" /> 超出管制界限!
-                                </p>
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] text-slate-500">量測值:</span>
+                                <span className="text-xs font-bold text-slate-900">{data.displayValue}</span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] text-slate-500">日期:</span>
+                                <span className="text-[10px] font-medium text-slate-600">{data.date}</span>
+                              </div>
+                              
+                              {data.violations && data.violations.length > 0 && (
+                                <div className="mt-2 pt-2 border-t border-rose-100">
+                                  <p className="text-[10px] text-rose-500 font-bold mb-1 flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3" /> 違反 Nelson Rules:
+                                  </p>
+                                  {data.violations.map((v: string, idx: number) => (
+                                    <p key={idx} className="text-[9px] text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded mt-0.5">{v}</p>
+                                  ))}
+                                </div>
                               )}
                             </div>
                           </div>
@@ -411,7 +501,7 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
                   {/* Control Limits Area */}
                   <Area 
                     type="monotone" 
-                    dataKey="UCL" 
+                    dataKey="range" 
                     stroke="none" 
                     fill="#fef2f2" 
                     fillOpacity={0.5} 
@@ -430,11 +520,11 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
                     strokeWidth={3} 
                     dot={(props: any) => {
                       const { cx, cy, payload } = props;
-                      const isOut = payload.isOut;
+                      const hasViolations = payload.violations && payload.violations.length > 0;
                       return (
                         <circle 
-                          cx={cx} cy={cy} r={isOut ? 6 : 4} 
-                          fill={isOut ? "#f43f5e" : "#0ea5e9"} 
+                          cx={cx} cy={cy} r={hasViolations ? 6 : 4} 
+                          fill={hasViolations ? "#f43f5e" : "#0ea5e9"} 
                           stroke="#fff" strokeWidth={2} 
                           className="transition-all duration-300"
                         />
@@ -442,6 +532,99 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
                     }}
                     activeDot={{ r: 8, strokeWidth: 0 }}
                   />
+                  <Brush dataKey="batch" height={30} stroke="#cbd5e1" />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Histogram & Normal Curve */}
+          <div className="glass-panel p-8 rounded-2xl">
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">數據分佈直方圖 (Histogram)</h3>
+                <p className="text-xs text-slate-500">常態分佈曲線與製程能力可視化</p>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-full bg-indigo-500"></div>
+                  <span className="text-[10px] font-bold text-slate-400">分佈頻率</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+                  <span className="text-[10px] font-bold text-slate-400">常態曲線</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="h-[350px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={combinedDistributionData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis 
+                    dataKey="x" 
+                    type="number" 
+                    domain={histogramDomain}
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#94a3b8', fontSize: 10 }}
+                  />
+                  <YAxis 
+                    yAxisId="left"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#94a3b8', fontSize: 10 }}
+                    label={{ value: '頻率', angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 10 }}
+                  />
+                  <YAxis 
+                    yAxisId="right"
+                    orientation="right"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#94a3b8', fontSize: 10 }}
+                    label={{ value: '機率密度', angle: 90, position: 'insideRight', fill: '#94a3b8', fontSize: 10 }}
+                  />
+                  <Tooltip />
+                  
+                  <Bar 
+                    yAxisId="left"
+                    dataKey="count" 
+                    fill="#6366f1" 
+                    radius={[4, 4, 0, 0]} 
+                    barSize={40}
+                    name="頻率"
+                  />
+                  
+                  <Line 
+                    yAxisId="right"
+                    type="monotone" 
+                    dataKey="y" 
+                    stroke="#10b981" 
+                    strokeWidth={3} 
+                    dot={false}
+                    name="常態分佈"
+                    connectNulls
+                  />
+
+                  {/* Specification Limits */}
+                  {project.specs?.[selectedTestItemId]?.min !== undefined && (
+                    <ReferenceLine 
+                      yAxisId="left"
+                      x={project.specs[selectedTestItemId].min} 
+                      stroke="#f43f5e" 
+                      strokeDasharray="3 3" 
+                      label={{ position: 'top', value: 'LSL', fill: '#f43f5e', fontSize: 10, fontWeight: 'bold' }} 
+                    />
+                  )}
+                  {project.specs?.[selectedTestItemId]?.max !== undefined && (
+                    <ReferenceLine 
+                      yAxisId="left"
+                      x={project.specs[selectedTestItemId].max} 
+                      stroke="#f43f5e" 
+                      strokeDasharray="3 3" 
+                      label={{ position: 'top', value: 'USL', fill: '#f43f5e', fontSize: 10, fontWeight: 'bold' }} 
+                    />
+                  )}
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -460,32 +643,44 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-white">
-                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">批次</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">項目 / 批次</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">量測值</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">CL</th>
-                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">UCL</th>
-                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">LCL</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">UCL / USL</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">LCL / LSL</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">狀態</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {spcData.map((d, i) => (
-                    <tr key={i} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-3 text-xs font-medium text-slate-900">{d.batch}</td>
-                      <td className="px-6 py-3 text-xs font-mono text-slate-600">{d.displayValue}</td>
-                      <td className="px-6 py-3 text-xs font-mono text-slate-400">{d.CL}</td>
-                      <td className="px-6 py-3 text-xs font-mono text-rose-400">{d.UCL}</td>
-                      <td className="px-6 py-3 text-xs font-mono text-rose-400">{d.LCL}</td>
-                      <td className="px-6 py-3">
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                          d.isOut ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"
-                        )}>
-                          {d.isOut ? '失控' : '穩定'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {spcData.map((d, i) => {
+                    const spec = project?.specs?.[selectedTestItemId];
+                    return (
+                      <tr key={i} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-3">
+                          <p className="text-xs font-bold text-slate-900">{selectedTestItem?.name}</p>
+                          <p className="text-[10px] text-slate-400">{d.batch}</p>
+                        </td>
+                        <td className="px-6 py-3 text-xs font-mono text-slate-600">{d.displayValue}</td>
+                        <td className="px-6 py-3 text-xs font-mono text-slate-400">{d.CL}</td>
+                        <td className="px-6 py-3 text-xs font-mono">
+                          <span className="text-rose-400">{d.UCL}</span>
+                          {spec?.max !== undefined && <span className="ml-1 text-slate-300">/ {spec.max}</span>}
+                        </td>
+                        <td className="px-6 py-3 text-xs font-mono">
+                          <span className="text-rose-400">{d.LCL}</span>
+                          {spec?.min !== undefined && <span className="ml-1 text-slate-300">/ {spec.min}</span>}
+                        </td>
+                        <td className="px-6 py-3">
+                          <span className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                            d.isOut ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"
+                          )}>
+                            {d.isOut ? '失控' : '穩定'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

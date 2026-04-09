@@ -79,6 +79,10 @@ export const savePersistentTestItems = async (items: TestItem[]) => {
   }
 };
 
+export const deletePersistentTestItem = async (id: string) => {
+  await firebaseService.deleteTestItem(id);
+};
+
 export const getPersistentProfiles = async (): Promise<ProcessProfile[]> => {
   return firebaseService.getProcessProfiles();
 };

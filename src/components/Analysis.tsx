@@ -4,7 +4,9 @@ import {
   Share2, 
   Filter, 
   Settings2,
-  Maximize2
+  Maximize2,
+  Activity,
+  TrendingUp
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { 
@@ -15,7 +17,9 @@ import {
 } from '../lib/persistence';
 import { Project, TestItem, Experiment } from '../types';
 import { useAuth } from './AuthContext';
+import { cn } from '../lib/utils';
 import { SPCAnalysis } from './SPCAnalysis';
+import { CorrelationAnalysis } from './CorrelationAnalysis';
 import { SpecificationManager } from './SpecificationManager';
 
 export const Analysis = () => {
@@ -57,6 +61,7 @@ export const Analysis = () => {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedExperimentId, setSelectedExperimentId] = useState('all');
   const [timeRange, setTimeRange] = useState('all');
+  const [activeTab, setActiveTab] = useState<'spc' | 'correlation'>('spc');
 
   useEffect(() => {
     if (projects.length > 0 && !selectedProjectId) {
@@ -128,78 +133,106 @@ export const Analysis = () => {
           </button>
           <button 
             onClick={() => toast.success('數據匯出成功')}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs sm:text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-brand-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-brand-700 transition-all shadow-lg shadow-brand-200"
           >
             <Download className="w-4 h-4" />
             匯出
-          </button>
-          <button 
-            onClick={() => toast.info('分享連結已複製到剪貼簿')}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 py-2 bg-brand-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-brand-700 transition-all shadow-lg shadow-brand-200"
-          >
-            <Share2 className="w-4 h-4" />
-            分享
           </button>
         </div>
       </div>
 
       {/* Filter Bar */}
-      <div className="glass-panel p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-4">
-        <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-lg border border-slate-100 w-fit">
-          <Filter className="w-4 h-4 text-slate-400" />
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">篩選:</span>
+      <div className="glass-panel p-4 rounded-2xl flex flex-col lg:flex-row lg:items-center gap-4">
+        <div className="flex items-center gap-4 border-b lg:border-b-0 lg:border-r border-slate-100 pb-4 lg:pb-0 lg:pr-6">
+          <button 
+            onClick={() => setActiveTab('spc')}
+            className={cn(
+              "px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+              activeTab === 'spc' ? "bg-brand-600 text-white shadow-lg shadow-brand-200" : "text-slate-400 hover:bg-slate-50"
+            )}
+          >
+            <Activity className="w-4 h-4" />
+            SPC 管制圖
+          </button>
+          <button 
+            onClick={() => setActiveTab('correlation')}
+            className={cn(
+              "px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+              activeTab === 'correlation' ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200" : "text-slate-400 hover:bg-slate-50"
+            )}
+          >
+            <TrendingUp className="w-4 h-4" />
+            關聯性分析
+          </button>
         </div>
-        <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 sm:gap-4 flex-1">
-          <select 
-            value={selectedProjectId}
-            onChange={(e) => setSelectedProjectId(e.target.value)}
-            className="bg-white border border-slate-200 text-sm font-medium text-slate-600 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500"
+
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-1">
+          <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-lg border border-slate-100 w-fit">
+            <Filter className="w-4 h-4 text-slate-400" />
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">篩選:</span>
+          </div>
+          <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 sm:gap-4 flex-1">
+            <select 
+              value={selectedProjectId}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+              className="bg-white border border-slate-200 text-sm font-medium text-slate-600 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>專案: {p.name}</option>
+              ))}
+            </select>
+            <select 
+              value={selectedExperimentId}
+              onChange={(e) => setSelectedExperimentId(e.target.value)}
+              className="bg-white border border-slate-200 text-sm font-medium text-slate-600 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="all">所有實驗</option>
+              {projectExperiments.map(exp => (
+                <option key={exp.id} value={exp.id}>{exp.title}</option>
+              ))}
+            </select>
+            <select 
+              value={timeRange}
+              onChange={(e) => setTimeRange(e.target.value)}
+              className="bg-white border border-slate-200 text-sm font-medium text-slate-600 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="all">全部時間</option>
+              <option value="30">最近 30 天</option>
+              <option value="90">最近 90 天</option>
+              <option value="custom">自訂範圍</option>
+            </select>
+          </div>
+          <button 
+            onClick={() => {
+              setSelectedProjectId(projects[0]?.id || 'p1');
+              setSelectedExperimentId('all');
+              setTimeRange('30');
+              toast.info('篩選條件已重設');
+            }}
+            className="text-xs font-bold text-brand-600 hover:underline text-right"
           >
-            {projects.map(p => (
-              <option key={p.id} value={p.id}>專案: {p.name}</option>
-            ))}
-          </select>
-          <select 
-            value={selectedExperimentId}
-            onChange={(e) => setSelectedExperimentId(e.target.value)}
-            className="bg-white border border-slate-200 text-sm font-medium text-slate-600 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500"
-          >
-            <option value="all">所有實驗</option>
-            {projectExperiments.map(exp => (
-              <option key={exp.id} value={exp.id}>{exp.title}</option>
-            ))}
-          </select>
-          <select 
-            value={timeRange}
-            onChange={(e) => setTimeRange(e.target.value)}
-            className="bg-white border border-slate-200 text-sm font-medium text-slate-600 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-brand-500"
-          >
-            <option value="all">全部時間</option>
-            <option value="30">最近 30 天</option>
-            <option value="90">最近 90 天</option>
-            <option value="custom">自訂範圍</option>
-          </select>
+            清除全部
+          </button>
         </div>
-        <button 
-          onClick={() => {
-            setSelectedProjectId(projects[0]?.id || 'p1');
-            setSelectedExperimentId('all');
-            setTimeRange('30');
-            toast.info('篩選條件已重設');
-          }}
-          className="text-xs font-bold text-brand-600 hover:underline text-right"
-        >
-          清除全部
-        </button>
       </div>
 
-      <SPCAnalysis 
-        project={selectedProject}
-        experiments={experiments}
-        testItems={testItems}
-        selectedExperimentId={selectedExperimentId}
-        timeRange={timeRange}
-      />
+      {activeTab === 'spc' ? (
+        <SPCAnalysis 
+          project={selectedProject}
+          experiments={experiments}
+          testItems={testItems}
+          selectedExperimentId={selectedExperimentId}
+          timeRange={timeRange}
+        />
+      ) : (
+        <CorrelationAnalysis 
+          project={selectedProject}
+          experiments={experiments}
+          testItems={testItems}
+          selectedExperimentId={selectedExperimentId}
+          timeRange={timeRange}
+        />
+      )}
 
       {/* Specification Modal */}
       {isSpecModalOpen && selectedProject && (

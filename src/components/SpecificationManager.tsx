@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Save, Info, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { TestItem, Project } from '../types';
@@ -54,6 +54,15 @@ export const SpecificationManager = ({ project, testItems, onUpdate, onAddTestIt
     }
   };
 
+  const uniqueTestItems = useMemo(() => {
+    const seen = new Set();
+    return testItems.filter(item => {
+      if (seen.has(item.name)) return false;
+      seen.add(item.name);
+      return true;
+    });
+  }, [testItems]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -89,7 +98,7 @@ export const SpecificationManager = ({ project, testItems, onUpdate, onAddTestIt
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {testItems.map((item) => (
+            {uniqueTestItems.map((item) => (
               <tr key={item.id} className="hover:bg-slate-50/30 transition-colors">
                 <td className="px-6 py-4">
                   <span className="text-sm font-bold text-slate-900">{item.name}</span>

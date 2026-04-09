@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from './AuthContext';
+import { NotificationCenter } from './NotificationCenter';
 
 const SidebarItem = ({ to, icon: Icon, label }: { to: string, icon: any, label: string }) => (
   <NavLink
@@ -224,13 +225,7 @@ export const Layout = () => {
           </div>
 
           <div className="flex items-center gap-2 lg:gap-4">
-            <button 
-              onClick={() => toast.info('目前沒有新通知')}
-              className="p-2 text-slate-500 hover:bg-slate-100 rounded-full relative transition-colors"
-            >
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-            </button>
+            <NotificationCenter />
             <div className="h-6 w-px bg-slate-200 mx-1 lg:mx-2"></div>
             <button 
               onClick={() => toast.info('個人檔案功能開發中')}
