@@ -57,9 +57,107 @@
         "anomalies": { "type": "string" },
         "conclusions": { "type": "string" },
         "suggestions": { "type": "string" },
-        "status": { "type": "string", "enum": ["Draft", "Completed"] }
+        "recipeId": { "type": "string" },
+        "recipeVersionId": { "type": "string" },
+        "doeSessionId": { "type": "string" },
+        "status": { "type": "string", "enum": ["Draft", "Completed"] },
+        "signature": { "type": "object" }
       },
       "required": ["id", "projectId", "title", "date", "status"]
+    },
+    "Recipe": {
+      "title": "Recipe",
+      "description": "Formulation and process recipe",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "currentVersionId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "currentVersionId", "projectId"]
+    },
+    "RecipeVersion": {
+      "title": "RecipeVersion",
+      "description": "Specific version of a recipe",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recipeId": { "type": "string" },
+        "versionNumber": { "type": "string" },
+        "description": { "type": "string" },
+        "formulation": { "type": "array", "items": { "type": "object" } },
+        "processConditions": { "type": "array", "items": { "type": "object" } },
+        "parentVersionId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "recipeId", "versionNumber", "createdBy", "createdAt"]
+    },
+    "DOESession": {
+      "title": "DOESession",
+      "description": "Design of Experiments session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "factors": { "type": "array", "items": { "type": "object" } },
+        "matrix": { "type": "array", "items": { "type": "object" } },
+        "status": { "type": "string", "enum": ["Planning", "In Progress", "Completed"] },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["id", "projectId", "name", "status", "createdAt", "createdBy"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Collaboration comment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "parentId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "parentId", "userId", "content", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "System audit log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "action": { "type": "string" },
+        "entityType": { "type": "string" },
+        "entityId": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "action", "entityType", "entityId", "timestamp"]
+    },
+    "ResearchReport": {
+      "title": "ResearchReport",
+      "description": "Generated research report",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "authorId": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "experimentIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "projectId", "title", "authorId", "createdAt"]
     },
     "Sample": {
       "title": "Sample",
@@ -241,6 +339,30 @@
     "/notifications/{notificationId}": {
       "schema": "Notification",
       "description": "System notifications"
+    },
+    "/recipes/{recipeId}": {
+      "schema": "Recipe",
+      "description": "Recipes"
+    },
+    "/recipes/{recipeId}/versions/{versionId}": {
+      "schema": "RecipeVersion",
+      "description": "Recipe versions"
+    },
+    "/doeSessions/{sessionId}": {
+      "schema": "DOESession",
+      "description": "DOE sessions"
+    },
+    "/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Comments"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Audit logs"
+    },
+    "/researchReports/{reportId}": {
+      "schema": "ResearchReport",
+      "description": "Research reports"
     }
   }
 }

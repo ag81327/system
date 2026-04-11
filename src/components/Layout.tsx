@@ -15,7 +15,8 @@ import {
   ShieldCheck,
   Key,
   X,
-  Menu
+  Menu,
+  FlaskConical
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from './AuthContext';
@@ -160,6 +161,7 @@ export const Layout = () => {
           <SidebarItem to="/" icon={LayoutDashboard} label="儀表板" />
           <SidebarItem to="/projects" icon={ClipboardList} label="專案管理" />
           <SidebarItem to="/experiments" icon={Beaker} label="實驗紀錄" />
+          <SidebarItem to="/rd-center" icon={FlaskConical} label="研發管理中心" />
           
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 mt-8 mb-2">數據分析</div>
           <SidebarItem to="/analysis" icon={BarChart3} label="趨勢分析" />

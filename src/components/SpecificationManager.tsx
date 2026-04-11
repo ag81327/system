@@ -47,7 +47,8 @@ export const SpecificationManager = ({ project, testItems, onUpdate, onAddTestIt
 
   const handleAddItem = () => {
     if (newItemName && onAddTestItem) {
-      onAddTestItem(newItemName, newItemUnit);
+      const existingItem = testItems.find(t => t.name === newItemName);
+      onAddTestItem(newItemName, newItemUnit || existingItem?.unit || '');
       setNewItemName('');
       setNewItemUnit('');
       setIsAddingItem(false);
@@ -62,6 +63,11 @@ export const SpecificationManager = ({ project, testItems, onUpdate, onAddTestIt
       return true;
     });
   }, [testItems]);
+
+  const masterTestItems = useMemo(() => {
+    // Filter out items already in the project's current test items
+    return testItems.filter(ti => !uniqueTestItems.some(uti => uti.name === ti.name));
+  }, [testItems, uniqueTestItems]);
 
   return (
     <div className="space-y-6">
@@ -86,7 +92,7 @@ export const SpecificationManager = ({ project, testItems, onUpdate, onAddTestIt
         </button>
       </div>
 
-      <div className="glass-panel rounded-2xl overflow-hidden border border-slate-100">
+      <div className="glass-panel rounded-2xl border border-slate-100">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-slate-50/50">
@@ -138,14 +144,32 @@ export const SpecificationManager = ({ project, testItems, onUpdate, onAddTestIt
             {isAddingItem ? (
               <tr className="bg-brand-50/30">
                 <td className="px-6 py-4">
-                  <input 
-                    type="text" 
-                    value={newItemName}
-                    onChange={(e) => setNewItemName(e.target.value)}
-                    placeholder="項目名稱"
-                    autoFocus
-                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none"
-                  />
+                  <div className="relative group/search">
+                    <input 
+                      type="text" 
+                      value={newItemName}
+                      onChange={(e) => setNewItemName(e.target.value)}
+                      placeholder="搜尋或輸入項目..."
+                      autoFocus
+                      className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none"
+                    />
+                    <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-lg shadow-xl mt-1 z-10 hidden group-focus-within/search:block max-h-48 overflow-y-auto">
+                      {testItems.map(p => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setNewItemName(p.name);
+                            setNewItemUnit(p.unit);
+                          }}
+                          className="w-full text-left px-4 py-2 text-xs hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0"
+                        >
+                          <span className="font-bold text-slate-700">{p.name}</span>
+                          <span className="ml-2 text-slate-400">({p.unit})</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </td>
                 <td className="px-6 py-4">
                   <input 

@@ -53,13 +53,107 @@ export interface Experiment {
   conclusions: string;
   suggestions: string;
   recipeId?: string;
-  recipeName?: string;
+  recipeVersionId?: string; // Link to specific recipe version
+  doeSessionId?: string;    // Link to DOE session if part of one
   status: 'Draft' | 'Completed';
+  signature?: {
+    userId: string;
+    userName: string;
+    signedAt: string;
+  };
   formulation?: FormulationItem[];
   processConditions?: ProcessCondition[];
   notes?: string;
   attachments?: string[]; // IDs of attachments
   visibleTo?: string[]; // User IDs who can view this experiment
+}
+
+export interface Recipe {
+  id: string;
+  name: string;
+  description: string;
+  currentVersionId: string;
+  projectId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecipeVersion {
+  id: string;
+  recipeId: string;
+  versionNumber: string; // e.g., "1.0", "1.1"
+  description: string;
+  formulation: Omit<FormulationItem, 'id' | 'actualWeight'>[];
+  processConditions: ProcessCondition[];
+  parentVersionId?: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface DOESession {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string;
+  factors: DOEFactor[];
+  matrix: DOERun[];
+  status: 'Planning' | 'In Progress' | 'Completed';
+  createdAt: string;
+  createdBy: string;
+  designMethod?: string;
+  replications?: number;
+  randomized?: boolean;
+  snRatioType?: 'Smaller' | 'Larger' | 'Nominal';
+}
+
+export interface DOEFactor {
+  id: string;
+  name: string;
+  type: 'Numerical' | 'Categorical';
+  levels: string[];
+  unit?: string;
+  isCenterPoint?: boolean;
+}
+
+export interface DOERun {
+  id: string;
+  experimentId?: string;
+  values: Record<string, string>;
+  runOrder?: number;
+  isReplication?: boolean;
+  originalRunId?: string;
+}
+
+export interface Comment {
+  id: string;
+  parentId: string; // e.g., experimentId, recipeId
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  content: string;
+  createdAt: string;
+  mentions?: string[]; // User IDs
+}
+
+export interface AuditLog {
+  id: string;
+  userId: string;
+  userName: string;
+  action: string; // e.g., "CREATE", "UPDATE", "SIGN", "DELETE"
+  entityType: string; // e.g., "Experiment", "Recipe"
+  entityId: string;
+  details: string; // JSON string of changes
+  timestamp: string;
+}
+
+export interface ResearchReport {
+  id: string;
+  projectId: string;
+  title: string;
+  content: string; // HTML or Markdown
+  authorId: string;
+  createdAt: string;
+  experimentIds: string[];
 }
 
 export type LensGrade = 'A' | 'B' | 'C';
@@ -80,8 +174,38 @@ export interface Sample {
   gradeA?: number;
   gradeB?: number;
   gradeC?: number;
+  qualityScore?: number;
   defects?: LensDefect[];
   results?: TestResult[]; // Optional for UI convenience
+}
+
+export interface MaterialMaster {
+  id: string;
+  name: string;
+  supplier?: string;
+  specModel?: string;
+  unit: string;
+  safetyStock?: number;
+  msdsUrl?: string;
+  description?: string;
+}
+
+export interface ProcessParameterMaster {
+  id: string;
+  name: string;
+  unit: string;
+  category: ProcessConditionType;
+  equipment?: string;
+  description?: string;
+}
+
+export interface DefectMaster {
+  id: string;
+  code: string;
+  name: string;
+  severity: 'Minor' | 'Major' | 'Critical';
+  description?: string;
+  standardImageUrl?: string;
 }
 
 export interface TestItem {

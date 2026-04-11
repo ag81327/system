@@ -55,6 +55,31 @@ service cloud.firestore {
     //   - type: string (required)
     //   - url: string (required)
     //
+    // Collection: materials
+    // Document ID: materialId
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - supplier: string (required)
+    //   - specModel: string (required)
+    //   - unit: string (required)
+    //
+    // Collection: processParameters
+    // Document ID: parameterId
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - category: string (required)
+    //   - unit: string (required)
+    //
+    // Collection: defectMasters
+    // Document ID: defectId
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - code: string (required)
+    //   - severity: string (required)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -192,6 +217,78 @@ service cloud.firestore {
              data.authorId is string;
     }
 
+    function isValidTestItem(data) {
+      return hasRequiredFields(['id', 'name', 'unit']) &&
+             data.id is string && data.id.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.unit is string && data.unit.size() < 50 &&
+             (!('defaultValue' in data) || data.defaultValue is number || data.defaultValue is string) &&
+             (!('min' in data) || data.min is number || data.min == null) &&
+             (!('max' in data) || data.max is number || data.max == null);
+    }
+
+    function isValidMaterial(data) {
+      return hasRequiredFields(['id', 'name', 'supplier', 'specModel', 'unit']) &&
+             data.id is string && data.id.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.supplier is string && data.supplier.size() < 200 &&
+             data.specModel is string && data.specModel.size() < 200 &&
+             data.unit is string && data.unit.size() < 50;
+    }
+
+    function isValidProcessParameter(data) {
+      return hasRequiredFields(['id', 'name', 'category', 'unit']) &&
+             data.id is string && data.id.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.category is string && data.category.size() < 100 &&
+             data.unit is string && data.unit.size() < 50;
+    }
+
+    function isValidDefectMaster(data) {
+      return hasRequiredFields(['id', 'name', 'code', 'severity']) &&
+             data.id is string && data.id.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.code is string && data.code.size() < 50 &&
+             data.severity is string && data.severity.size() < 50;
+    }
+
+    function isValidRecipe(data) {
+      return hasRequiredFields(['id', 'name', 'currentVersionId', 'projectId']) &&
+             data.id is string && data.name is string && data.name.size() > 0 &&
+             data.currentVersionId is string && data.projectId is string;
+    }
+
+    function isValidRecipeVersion(data) {
+      return hasRequiredFields(['id', 'recipeId', 'versionNumber', 'createdBy', 'createdAt']) &&
+             data.id is string && data.recipeId is string && data.versionNumber is string &&
+             data.createdBy is string && data.createdAt is string;
+    }
+
+    function isValidDOESession(data) {
+      return hasRequiredFields(['id', 'projectId', 'name', 'status', 'createdAt', 'createdBy']) &&
+             data.id is string && data.projectId is string && data.name is string &&
+             data.status in ['Planning', 'In Progress', 'Completed'] &&
+             data.createdAt is string && data.createdBy is string;
+    }
+
+    function isValidComment(data) {
+      return hasRequiredFields(['id', 'parentId', 'userId', 'content', 'createdAt']) &&
+             data.id is string && data.parentId is string && data.userId is string &&
+             data.content is string && data.createdAt is string;
+    }
+
+    function isValidAuditLog(data) {
+      return hasRequiredFields(['id', 'userId', 'action', 'entityType', 'entityId', 'timestamp']) &&
+             data.id is string && data.userId is string && data.action is string &&
+             data.entityType is string && data.entityId is string && data.timestamp is string;
+    }
+
+    function isValidResearchReport(data) {
+      return hasRequiredFields(['id', 'projectId', 'title', 'authorId', 'createdAt']) &&
+             data.id is string && data.projectId is string && data.title is string &&
+             data.authorId is string && data.createdAt is string;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -229,7 +326,26 @@ service cloud.firestore {
 
     match /testItems/{testItemId} {
       allow read: if isApproved();
-      allow write: if isAdmin();
+      allow create, update: if isAdmin() && isValidTestItem(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /materials/{materialId} {
+      allow read: if isApproved();
+      allow create, update: if isAdmin() && isValidMaterial(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /processParameters/{parameterId} {
+      allow read: if isApproved();
+      allow create, update: if isAdmin() && isValidProcessParameter(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /defectMasters/{defectId} {
+      allow read: if isApproved();
+      allow create, update: if isAdmin() && isValidDefectMaster(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /processProfiles/{profileId} {
@@ -268,6 +384,40 @@ service cloud.firestore {
       allow create: if isApproved() && isValidCalendarEvent(request.resource.data);
       allow update: if isApproved() && isValidCalendarEvent(request.resource.data);
       allow delete: if isApproved();
+    }
+
+    match /recipes/{recipeId} {
+      allow read: if isApproved();
+      allow write: if isApproved() && isValidRecipe(request.resource.data);
+
+      match /versions/{versionId} {
+        allow read: if isApproved();
+        allow write: if isApproved() && isValidRecipeVersion(request.resource.data);
+      }
+    }
+
+    match /doeSessions/{sessionId} {
+      allow read: if isApproved();
+      allow create, update: if isApproved() && isValidDOESession(request.resource.data);
+      allow delete: if isApproved() && (isAdmin() || resource.data.createdBy == request.auth.uid);
+    }
+
+    match /comments/{commentId} {
+      allow read: if isApproved();
+      allow create: if isApproved() && isValidComment(request.resource.data);
+      allow update: if isApproved() && isValidComment(request.resource.data) && request.auth.uid == resource.data.userId;
+      allow delete: if isApproved() && (request.auth.uid == resource.data.userId || isAdmin());
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isApproved();
+      allow create: if isAuthenticated() && isValidAuditLog(request.resource.data);
+      allow update, delete: if false; // Audit logs are immutable
+    }
+
+    match /researchReports/{reportId} {
+      allow read: if isApproved();
+      allow write: if isApproved() && isValidResearchReport(request.resource.data);
     }
 
     match /notifications/{notificationId} {

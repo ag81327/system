@@ -6,8 +6,9 @@ import {
 import { 
   Zap, Info, Activity, TrendingUp, BarChart3, 
   Settings, Download, Filter, ArrowRightLeft,
-  Search, AlertCircle
+  Search, AlertCircle, Box, Maximize2
 } from 'lucide-react';
+import Plot from 'react-plotly.js';
 import { Experiment, TestItem, Project } from '../types';
 import { cn } from '../lib/utils';
 import { getPersistentSamples } from '../lib/persistence';
@@ -33,6 +34,8 @@ export const CorrelationAnalysis = ({ project, experiments, testItems, selectedE
 
   const [itemXId, setItemXId] = useState(uniqueTestItems[0]?.id || '');
   const [itemYId, setItemYId] = useState(uniqueTestItems[1]?.id || uniqueTestItems[0]?.id || '');
+  const [itemZId, setItemZId] = useState(uniqueTestItems[2]?.id || '');
+  const [is3D, setIs3D] = useState(false);
   const [allSamplesMap, setAllSamplesMap] = useState<Record<string, any[]>>({});
   const [isLoading, setIsLoading] = useState(true);
 
@@ -64,6 +67,7 @@ export const CorrelationAnalysis = ({ project, experiments, testItems, selectedE
 
     const itemX = testItems.find(t => t.id === itemXId);
     const itemY = testItems.find(t => t.id === itemYId);
+    const itemZ = testItems.find(t => t.id === itemZId);
     if (!itemX || !itemY) return [];
 
     let filteredExperiments = experiments.filter(e => e.projectId === project.id);
@@ -83,11 +87,16 @@ export const CorrelationAnalysis = ({ project, experiments, testItems, selectedE
           const it = testItems.find(t => t.id === r.testItemId);
           return it?.name === itemY.name;
         });
+        const resZ = itemZ ? sample.results.find((r: any) => {
+          const it = testItems.find(t => t.id === r.testItemId);
+          return it?.name === itemZ.name;
+        }) : null;
 
         if (resX && resY && resX.mean > 0 && resY.mean > 0) {
           data.push({
             x: resX.mean,
             y: resY.mean,
+            z: resZ ? resZ.mean : 0,
             batch: `${exp.title} - ${sample.code}`,
             date: exp.date
           });
@@ -96,7 +105,7 @@ export const CorrelationAnalysis = ({ project, experiments, testItems, selectedE
     });
 
     return data;
-  }, [project.id, experiments, itemXId, itemYId, allSamplesMap, testItems, selectedExperimentId]);
+  }, [project.id, experiments, itemXId, itemYId, itemZId, allSamplesMap, testItems, selectedExperimentId]);
 
   const regression = useMemo(() => {
     return calculateLinearRegression(correlationData);
@@ -115,6 +124,7 @@ export const CorrelationAnalysis = ({ project, experiments, testItems, selectedE
 
   const itemX = testItems.find(t => t.id === itemXId);
   const itemY = testItems.find(t => t.id === itemYId);
+  const itemZ = testItems.find(t => t.id === itemZId);
 
   if (isLoading) {
     return (
@@ -127,138 +137,212 @@ export const CorrelationAnalysis = ({ project, experiments, testItems, selectedE
   return (
     <div className="space-y-8">
       {/* Controls */}
-      <div className="glass-panel p-6 rounded-2xl flex flex-col md:flex-row items-center gap-6 bg-slate-50/50 border-slate-200">
-        <div className="flex-1 w-full space-y-2">
-          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">X 軸指標 (自變數)</label>
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
-            <Activity className="w-4 h-4 text-brand-500" />
-            <select 
-              value={itemXId}
-              onChange={(e) => setItemXId(e.target.value)}
-              className="bg-transparent text-sm font-bold text-slate-600 outline-none flex-1"
-            >
-              {uniqueTestItems.map(item => (
-                <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
-              ))}
-            </select>
-          </div>
+      <div className="glass-panel p-6 rounded-2xl flex flex-col items-stretch gap-6 bg-slate-50/50 border-slate-200">
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-bold text-slate-900">分析維度設定</h4>
+          <button 
+            onClick={() => setIs3D(!is3D)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-bold transition-all",
+              is3D ? "bg-brand-600 text-white shadow-lg" : "bg-white text-slate-600 border border-slate-200"
+            )}
+          >
+            <Box className="w-4 h-4" />
+            {is3D ? '切換至 2D' : '切換至 3D'}
+          </button>
         </div>
 
-        <div className="shrink-0 p-2 bg-white rounded-full shadow-sm border border-slate-100 hidden md:block">
-          <ArrowRightLeft className="w-4 h-4 text-slate-300" />
-        </div>
-
-        <div className="flex-1 w-full space-y-2">
-          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Y 軸指標 (應變數)</label>
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
-            <TrendingUp className="w-4 h-4 text-indigo-500" />
-            <select 
-              value={itemYId}
-              onChange={(e) => setItemYId(e.target.value)}
-              className="bg-transparent text-sm font-bold text-slate-600 outline-none flex-1"
-            >
-              {uniqueTestItems.map(item => (
-                <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
-              ))}
-            </select>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">X 軸指標 (自變數)</label>
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+              <Activity className="w-4 h-4 text-brand-500" />
+              <select 
+                value={itemXId}
+                onChange={(e) => setItemXId(e.target.value)}
+                className="bg-transparent text-sm font-bold text-slate-600 outline-none flex-1"
+              >
+                {uniqueTestItems.map(item => (
+                  <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                ))}
+              </select>
+            </div>
           </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Y 軸指標 (應變數)</label>
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+              <TrendingUp className="w-4 h-4 text-indigo-500" />
+              <select 
+                value={itemYId}
+                onChange={(e) => setItemYId(e.target.value)}
+                className="bg-transparent text-sm font-bold text-slate-600 outline-none flex-1"
+              >
+                {uniqueTestItems.map(item => (
+                  <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {is3D && (
+            <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Z 軸指標 (第三維度)</label>
+              <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+                <Maximize2 className="w-4 h-4 text-emerald-500" />
+                <select 
+                  value={itemZId}
+                  onChange={(e) => setItemZId(e.target.value)}
+                  className="bg-transparent text-sm font-bold text-slate-600 outline-none flex-1"
+                >
+                  <option value="">選擇指標...</option>
+                  {uniqueTestItems.map(item => (
+                    <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-        {/* Scatter Plot */}
         <div className="xl:col-span-2 glass-panel p-8 rounded-2xl">
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h3 className="text-lg font-bold text-slate-900">指標關聯性分析 (Scatter Plot)</h3>
-              <p className="text-xs text-slate-500">分析 {itemX?.name} 與 {itemY?.name} 的相關程度</p>
+              <h3 className="text-lg font-bold text-slate-900">
+                {is3D ? '3D 指標關聯性分析' : '指標關聯性分析 (Scatter Plot)'}
+              </h3>
+              <p className="text-xs text-slate-500">
+                分析 {itemX?.name} {is3D ? `, ${itemY?.name} 與 ${itemZ?.name || '...'} ` : `與 ${itemY?.name}`} 的相關程度
+              </p>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-brand-500"></div>
-                <span className="text-[10px] font-bold text-slate-400">實驗數據</span>
+            {!is3D && (
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-full bg-brand-500"></div>
+                  <span className="text-[10px] font-bold text-slate-400">實驗數據</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-full bg-slate-300"></div>
+                  <span className="text-[10px] font-bold text-slate-400">趨勢線</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-slate-300"></div>
-                <span className="text-[10px] font-bold text-slate-400">趨勢線</span>
-              </div>
-            </div>
+            )}
           </div>
 
           <div className="h-[450px] w-full">
             {correlationData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis 
-                    dataKey="x" 
-                    type="number" 
-                    name={itemX?.name} 
-                    unit={itemX?.unit}
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: '#94a3b8', fontSize: 10 }}
-                    label={{ value: `${itemX?.name} (${itemX?.unit})`, position: 'bottom', offset: 0, fill: '#64748b', fontSize: 12, fontWeight: 'bold' }}
-                  />
-                  <YAxis 
-                    dataKey="y" 
-                    type="number" 
-                    name={itemY?.name} 
-                    unit={itemY?.unit}
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: '#94a3b8', fontSize: 10 }}
-                    label={{ value: `${itemY?.name} (${itemY?.unit})`, angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 12, fontWeight: 'bold' }}
-                  />
-                  <Tooltip 
-                    cursor={{ strokeDasharray: '3 3' }}
-                    content={({ active, payload }) => {
-                      if (active && payload && payload.length) {
-                        const data = payload[0].payload;
-                        return (
-                          <div className="bg-white p-4 rounded-xl shadow-2xl border border-slate-100 min-w-[200px]">
-                            <p className="text-xs font-bold text-slate-900 mb-2">{data.batch}</p>
-                            <div className="space-y-1.5">
-                              <div className="flex justify-between items-center">
-                                <span className="text-[10px] text-slate-500">{itemX?.name}:</span>
-                                <span className="text-xs font-bold text-brand-600">{data.x} {itemX?.unit}</span>
-                              </div>
-                              <div className="flex justify-between items-center">
-                                <span className="text-[10px] text-slate-500">{itemY?.name}:</span>
-                                <span className="text-xs font-bold text-indigo-600">{data.y} {itemY?.unit}</span>
-                              </div>
-                              <div className="flex justify-between items-center">
-                                <span className="text-[10px] text-slate-500">日期:</span>
-                                <span className="text-[10px] font-medium text-slate-400">{data.date}</span>
+              is3D ? (
+                <Plot
+                  data={[
+                    {
+                      x: correlationData.map(d => d.x),
+                      y: correlationData.map(d => d.y),
+                      z: correlationData.map(d => d.z),
+                      mode: 'markers',
+                      type: 'scatter3d',
+                      marker: {
+                        size: 6,
+                        color: correlationData.map(d => d.y),
+                        colorscale: 'Viridis',
+                        opacity: 0.8
+                      },
+                      text: correlationData.map(d => d.batch),
+                      hoverinfo: 'text+x+y+z'
+                    }
+                  ]}
+                  layout={{
+                    autosize: true,
+                    margin: { l: 0, r: 0, b: 0, t: 0 },
+                    scene: {
+                      xaxis: { title: itemX?.name || 'X' },
+                      yaxis: { title: itemY?.name || 'Y' },
+                      zaxis: { title: itemZ?.name || 'Z' },
+                      camera: {
+                        eye: { x: 1.5, y: 1.5, z: 1.5 }
+                      }
+                    },
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)'
+                  }}
+                  config={{ responsive: true, displayModeBar: false }}
+                  style={{ width: '100%', height: '100%' }}
+                />
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis 
+                      dataKey="x" 
+                      type="number" 
+                      name={itemX?.name} 
+                      unit={itemX?.unit}
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#94a3b8', fontSize: 10 }}
+                      label={{ value: `${itemX?.name} (${itemX?.unit})`, position: 'bottom', offset: 0, fill: '#64748b', fontSize: 12, fontWeight: 'bold' }}
+                    />
+                    <YAxis 
+                      dataKey="y" 
+                      type="number" 
+                      name={itemY?.name} 
+                      unit={itemY?.unit}
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#94a3b8', fontSize: 10 }}
+                      label={{ value: `${itemY?.name} (${itemY?.unit})`, angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 12, fontWeight: 'bold' }}
+                    />
+                    <Tooltip 
+                      cursor={{ strokeDasharray: '3 3' }}
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className="bg-white p-4 rounded-xl shadow-2xl border border-slate-100 min-w-[200px]">
+                              <p className="text-xs font-bold text-slate-900 mb-2">{data.batch}</p>
+                              <div className="space-y-1.5">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-slate-500">{itemX?.name}:</span>
+                                  <span className="text-xs font-bold text-brand-600">{data.x} {itemX?.unit}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-slate-500">{itemY?.name}:</span>
+                                  <span className="text-xs font-bold text-indigo-600">{data.y} {itemY?.unit}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-slate-500">日期:</span>
+                                  <span className="text-[10px] font-medium text-slate-400">{data.date}</span>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      }
-                      return null;
-                    }}
-                  />
-                  <Scatter 
-                    name="數據點" 
-                    data={correlationData} 
-                    fill="#0ea5e9" 
-                    fillOpacity={0.6}
-                    stroke="#fff"
-                    strokeWidth={1}
-                  />
-                  <Line 
-                    data={trendLineData} 
-                    type="monotone" 
-                    dataKey="trend" 
-                    stroke="#94a3b8" 
-                    strokeWidth={2} 
-                    strokeDasharray="5 5"
-                    dot={false} 
-                    activeDot={false}
-                    name="線性趨勢"
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Scatter 
+                      name="數據點" 
+                      data={correlationData} 
+                      fill="#0ea5e9" 
+                      fillOpacity={0.6}
+                      stroke="#fff"
+                      strokeWidth={1}
+                    />
+                    <Line 
+                      data={trendLineData} 
+                      type="monotone" 
+                      dataKey="trend" 
+                      stroke="#94a3b8" 
+                      strokeWidth={2} 
+                      strokeDasharray="5 5"
+                      dot={false} 
+                      activeDot={false}
+                      name="線性趨勢"
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              )
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4">
                 <Search className="w-12 h-12 opacity-20" />

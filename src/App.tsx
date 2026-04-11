@@ -12,6 +12,8 @@ import { ComparisonProvider } from './components/ComparisonContext';
 import { Login } from './components/Login';
 import { UserManagement } from './components/UserManagement';
 import { DataComparison } from './components/DataComparison';
+import { MasterDataSettings } from './components/MasterDataSettings';
+import { RDManagement } from './components/RDManagement';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; requireAdmin?: boolean }> = ({ children, requireAdmin }) => {
   const { user, isLoading, logout } = useAuth();
@@ -75,7 +77,8 @@ const AppRoutes = () => {
         <Route path="comparison" element={<DataComparison />} />
         <Route path="analysis" element={<Analysis />} />
         <Route path="users" element={<ProtectedRoute requireAdmin><UserManagement /></ProtectedRoute>} />
-        <Route path="master-data" element={<div className="p-8 text-slate-500 italic">基礎資料管理 - 即將推出</div>} />
+        <Route path="master-data" element={<ProtectedRoute requireAdmin><MasterDataSettings /></ProtectedRoute>} />
+        <Route path="rd-center" element={<RDManagement />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
@@ -87,7 +90,7 @@ export default function App() {
     <AuthProvider>
       <ComparisonProvider>
         <BrowserRouter>
-          <Toaster position="top-right" richColors />
+          <Toaster position="top-center" richColors />
           <AppRoutes />
         </BrowserRouter>
       </ComparisonProvider>

@@ -1,4 +1,4 @@
-import { TestItem, ProcessProfile, Project, User, UserPermission, FormulationProfile, Experiment, Sample, Attachment, Todo, Announcement, CalendarEvent } from '../types';
+import { TestItem, ProcessProfile, Project, User, UserPermission, FormulationProfile, Experiment, Sample, Attachment, Todo, Announcement, CalendarEvent, MaterialMaster, ProcessParameterMaster, DefectMaster, Recipe, RecipeVersion, DOESession, Comment, AuditLog, ResearchReport } from '../types';
 import { firebaseService } from './firebaseService';
 
 export const getPersistentUsers = async (): Promise<User[]> => {
@@ -67,6 +67,10 @@ export const savePersistentSamples = async (experimentId: string, samples: Sampl
   for (const sample of samples) {
     await firebaseService.saveSample(experimentId, sample);
   }
+};
+
+export const deletePersistentSample = async (experimentId: string, id: string) => {
+  await firebaseService.deleteSample(experimentId, id);
 };
 
 export const getPersistentTestItems = async (): Promise<TestItem[]> => {
@@ -149,4 +153,94 @@ export const savePersistentCalendarEvent = async (event: CalendarEvent) => {
 
 export const deletePersistentCalendarEvent = async (id: string) => {
   await firebaseService.deleteCalendarEvent(id);
+};
+
+// Master Data Persistence
+export const getPersistentMaterials = async (): Promise<MaterialMaster[]> => {
+  return firebaseService.getMaterials();
+};
+
+export const savePersistentMaterial = async (material: MaterialMaster) => {
+  await firebaseService.saveMaterial(material);
+};
+
+export const deletePersistentMaterial = async (id: string) => {
+  await firebaseService.deleteMaterial(id);
+};
+
+export const getPersistentProcessParameters = async (): Promise<ProcessParameterMaster[]> => {
+  return firebaseService.getProcessParameters();
+};
+
+export const savePersistentProcessParameter = async (param: ProcessParameterMaster) => {
+  await firebaseService.saveProcessParameter(param);
+};
+
+export const deletePersistentProcessParameter = async (id: string) => {
+  await firebaseService.deleteProcessParameter(id);
+};
+
+export const getPersistentDefectMasters = async (): Promise<DefectMaster[]> => {
+  return firebaseService.getDefectMasters();
+};
+
+export const savePersistentDefectMaster = async (defect: DefectMaster) => {
+  await firebaseService.saveDefectMaster(defect);
+};
+
+export const deletePersistentDefectMaster = async (id: string) => {
+  await firebaseService.deleteDefectMaster(id);
+};
+
+// R&D Persistence
+export const getPersistentRecipes = async (projectId?: string): Promise<Recipe[]> => {
+  return firebaseService.getRecipes(projectId);
+};
+
+export const savePersistentRecipe = async (recipe: Recipe) => {
+  await firebaseService.saveRecipe(recipe);
+};
+
+export const getPersistentRecipeVersions = async (recipeId: string): Promise<RecipeVersion[]> => {
+  return firebaseService.getRecipeVersions(recipeId);
+};
+
+export const savePersistentRecipeVersion = async (recipeId: string, version: RecipeVersion) => {
+  await firebaseService.saveRecipeVersion(recipeId, version);
+};
+
+export const getPersistentDOESessions = async (projectId?: string): Promise<DOESession[]> => {
+  return firebaseService.getDOESessions(projectId);
+};
+
+export const savePersistentDOESession = async (session: DOESession) => {
+  await firebaseService.saveDOESession(session);
+};
+
+export const deletePersistentDOESession = async (id: string) => {
+  await firebaseService.deleteDOESession(id);
+};
+
+export const getPersistentComments = async (parentId: string): Promise<Comment[]> => {
+  return firebaseService.getComments(parentId);
+};
+
+export const savePersistentComment = async (comment: Comment) => {
+  await firebaseService.saveComment(comment);
+};
+
+export const getPersistentAuditLogs = async (entityId?: string): Promise<AuditLog[]> => {
+  return firebaseService.getAuditLogs(entityId);
+};
+
+export const savePersistentAuditLog = async (log: AuditLog) => {
+  await firebaseService.saveAuditLog(log);
+};
+
+export const getPersistentResearchReports = async (projectId?: string): Promise<ResearchReport[]> => {
+  return firebaseService.getResearchReports(projectId);
+};
+
+export const savePersistentResearchReport = async (report: ResearchReport) => {
+  await firebaseService.saveResearchReport(report);
 };

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useComparison } from './ComparisonContext';
-import { Experiment, Sample, TestResult, TestItem } from '../types';
-import { getPersistentSamples, getPersistentTestItems } from '../lib/persistence';
+import { Experiment, Sample, TestResult, TestItem, DefectMaster } from '../types';
+import { getPersistentSamples, getPersistentTestItems, getPersistentDefectMasters } from '../lib/persistence';
 import * as XLSX from 'xlsx';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
@@ -32,13 +32,15 @@ export const DataComparison: React.FC = () => {
   const [viewMode, setViewMode] = useState<'table' | 'charts'>('table');
   const [hideIdentical, setHideIdentical] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [defectMasters, setDefectMasters] = useState<DefectMaster[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        const [allTestItems] = await Promise.all([
-          getPersistentTestItems()
+        const [allTestItems, allDefectMasters] = await Promise.all([
+          getPersistentTestItems(),
+          getPersistentDefectMasters()
         ]);
 
         const experimentSamples: Record<string, Sample[]> = {};
@@ -49,6 +51,7 @@ export const DataComparison: React.FC = () => {
 
         setSamples(experimentSamples);
         setTestItems(allTestItems);
+        setDefectMasters(allDefectMasters);
       } catch (error) {
         console.error('Failed to fetch comparison data', error);
         toast.error('讀取比對數據失敗');
@@ -478,18 +481,28 @@ export const DataComparison: React.FC = () => {
                       })}
                     </tr>
                     {/* Defect Types Breakdown */}
-                    {Array.from(new Set(selectedExperiments.flatMap(exp => 
-                      samples[exp.id]?.flatMap(s => s.defects?.map(d => d.type) || []) || []
-                    ))).map(defectType => {
+                    {Array.from(new Set([
+                      ...defectMasters.map(d => d.name),
+                      ...selectedExperiments.flatMap(exp => 
+                        samples[exp.id]?.flatMap(s => s.defects?.map(d => d.type) || []) || []
+                      )
+                    ])).map(defectType => {
                       const values = comparisonColumns.map(col => {
                         const d = col.sample?.defects?.find(def => def.type === defectType);
                         return d?.count || 0;
                       });
 
+                      // Only show if at least one sample has this defect or it's in master
+                      const hasData = values.some(v => v > 0);
+                      const isMaster = defectMasters.some(d => d.name === defectType);
+                      
+                      if (!hasData && !isMaster) return null;
+
                       return (
                         <tr key={defectType}>
                           <td className="p-4 text-sm font-medium text-slate-600 sticky left-0 bg-white z-10 border-r border-slate-50">
                             缺陷: {defectType}
+                            {isMaster && <span className="ml-1 text-[10px] text-brand-500 font-bold">(標)</span>}
                           </td>
                           {values.map((val, idx) => (
                             <td key={idx} className="p-4 text-sm text-slate-700">{val}</td>

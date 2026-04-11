@@ -14,7 +14,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { handleFirestoreError, OperationType } from './firestoreUtils';
-import { Project, Experiment, Sample, User, UserPermission, TestItem, ProcessProfile, FormulationProfile, Attachment, Todo, Announcement, CalendarEvent } from '../types';
+import { Project, Experiment, Sample, User, UserPermission, TestItem, ProcessProfile, FormulationProfile, Attachment, Todo, Announcement, CalendarEvent, MaterialMaster, ProcessParameterMaster, DefectMaster, Recipe, RecipeVersion, DOESession, Comment, AuditLog, ResearchReport } from '../types';
 
 // Generic CRUD operations
 export const getDocument = async <T>(path: string, id: string): Promise<T | null> => {
@@ -42,18 +42,29 @@ export const getCollection = async <T>(path: string): Promise<T[]> => {
   }
 };
 
+// Helper to strip undefined values recursively
+const deepClean = (obj: any): any => {
+  if (Array.isArray(obj)) {
+    return obj.map(v => deepClean(v)).filter(v => v !== undefined);
+  }
+  if (obj !== null && typeof obj === 'object' && !(obj instanceof Timestamp)) {
+    return Object.entries(obj).reduce((acc, [key, value]) => {
+      const cleanedValue = deepClean(value);
+      if (cleanedValue !== undefined) {
+        acc[key] = cleanedValue;
+      }
+      return acc;
+    }, {} as any);
+  }
+  return obj;
+};
+
 export const saveDocument = async <T extends { id?: string }>(path: string, data: T): Promise<void> => {
   try {
     const id = data.id || doc(collection(db, path)).id;
     const docRef = doc(db, path, id);
     
-    // Strip undefined values to prevent Firestore errors
-    const cleanData = Object.entries(data).reduce((acc, [key, value]) => {
-      if (value !== undefined) {
-        acc[key] = value;
-      }
-      return acc;
-    }, {} as any);
+    const cleanData = deepClean(data);
 
     await setDoc(docRef, { ...cleanData, id }, { merge: true });
   } catch (error) {
@@ -113,7 +124,8 @@ export const firebaseService = {
   savePermission: async (permission: UserPermission) => {
     try {
       const docRef = doc(db, 'permissions', permission.userId);
-      await setDoc(docRef, permission, { merge: true });
+      const cleanData = deepClean(permission);
+      await setDoc(docRef, cleanData, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'permissions');
     }
@@ -127,6 +139,19 @@ export const firebaseService = {
   getFormulationProfiles: () => getCollection<FormulationProfile>('formulationProfiles'),
   saveFormulationProfile: (profile: FormulationProfile) => saveDocument('formulationProfiles', profile),
   deleteTestItem: (id: string) => removeDocument('testItems', id),
+
+  // Master Data
+  getMaterials: () => getCollection<MaterialMaster>('materials'),
+  saveMaterial: (material: MaterialMaster) => saveDocument('materials', material),
+  deleteMaterial: (id: string) => removeDocument('materials', id),
+
+  getProcessParameters: () => getCollection<ProcessParameterMaster>('processParameters'),
+  saveProcessParameter: (param: ProcessParameterMaster) => saveDocument('processParameters', param),
+  deleteProcessParameter: (id: string) => removeDocument('processParameters', id),
+
+  getDefectMasters: () => getCollection<DefectMaster>('defectMasters'),
+  saveDefectMaster: (defect: DefectMaster) => saveDocument('defectMasters', defect),
+  deleteDefectMaster: (id: string) => removeDocument('defectMasters', id),
 
   // Attachments
   getAttachments: (parentId: string) => {
@@ -150,4 +175,54 @@ export const firebaseService = {
   getCalendarEvents: () => getCollection<CalendarEvent>('calendarEvents'),
   saveCalendarEvent: (event: CalendarEvent) => saveDocument('calendarEvents', event),
   deleteCalendarEvent: (id: string) => removeDocument('calendarEvents', id),
+
+  // Recipes
+  getRecipes: (projectId?: string) => {
+    if (projectId) {
+      const q = query(collection(db, 'recipes'), where('projectId', '==', projectId));
+      return getDocs(q).then(snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Recipe)));
+    }
+    return getCollection<Recipe>('recipes');
+  },
+  saveRecipe: (recipe: Recipe) => saveDocument('recipes', recipe),
+  getRecipeVersions: (recipeId: string) => getCollection<RecipeVersion>(`recipes/${recipeId}/versions`),
+  saveRecipeVersion: (recipeId: string, version: RecipeVersion) => saveDocument(`recipes/${recipeId}/versions`, version),
+
+  // DOE
+  getDOESessions: (projectId?: string) => {
+    if (projectId) {
+      const q = query(collection(db, 'doeSessions'), where('projectId', '==', projectId));
+      return getDocs(q).then(snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as DOESession)));
+    }
+    return getCollection<DOESession>('doeSessions');
+  },
+  saveDOESession: (session: DOESession) => saveDocument('doeSessions', session),
+  deleteDOESession: (id: string) => removeDocument('doeSessions', id),
+
+  // Comments
+  getComments: (parentId: string) => {
+    const q = query(collection(db, 'comments'), where('parentId', '==', parentId));
+    return getDocs(q).then(snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Comment)));
+  },
+  saveComment: (comment: Comment) => saveDocument('comments', comment),
+
+  // Audit Logs
+  getAuditLogs: (entityId?: string) => {
+    if (entityId) {
+      const q = query(collection(db, 'auditLogs'), where('entityId', '==', entityId));
+      return getDocs(q).then(snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AuditLog)));
+    }
+    return getCollection<AuditLog>('auditLogs');
+  },
+  saveAuditLog: (log: AuditLog) => saveDocument('auditLogs', log),
+
+  // Research Reports
+  getResearchReports: (projectId?: string) => {
+    if (projectId) {
+      const q = query(collection(db, 'researchReports'), where('projectId', '==', projectId));
+      return getDocs(q).then(snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ResearchReport)));
+    }
+    return getCollection<ResearchReport>('researchReports');
+  },
+  saveResearchReport: (report: ResearchReport) => saveDocument('researchReports', report),
 };

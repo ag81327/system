@@ -30,7 +30,7 @@ import { ExperimentModal } from './ExperimentModal';
 import { RichTextEditor } from './RichTextEditor';
 import { SpecificationManager } from './SpecificationManager';
 import { useAuth } from './AuthContext';
-import { TestItem, Experiment, Project, FormulationItem, ProcessCondition, ProcessConditionType, ProcessProfile, FormulationProfile, Sample, Attachment } from '../types';
+import { TestItem, Experiment, Project, FormulationItem, ProcessCondition, ProcessConditionType, ProcessProfile, FormulationProfile, Sample, Attachment, MaterialMaster, ProcessParameterMaster, DefectMaster } from '../types';
 
 import { 
   getPersistentProjects, 
@@ -41,6 +41,7 @@ import {
   savePersistentProfiles,
   getPersistentSamples,
   savePersistentSamples,
+  deletePersistentSample,
   getPersistentFormulationProfiles,
   savePersistentFormulationProfiles,
   getPersistentExperiment,
@@ -48,7 +49,10 @@ import {
   savePersistentProject,
   getPersistentAttachments,
   savePersistentAttachment,
-  deletePersistentAttachment
+  deletePersistentAttachment,
+  getPersistentMaterials,
+  getPersistentProcessParameters,
+  getPersistentDefectMasters
 } from '../lib/persistence';
 
 export const ExperimentDetail = () => {
@@ -67,6 +71,9 @@ export const ExperimentDetail = () => {
   const [formulationProfiles, setFormulationProfiles] = useState<FormulationProfile[]>([]);
   const [defectTypes, setDefectTypes] = useState<string[]>(['刮傷', '氣泡', '灰塵', '黑點']);
   const [testItems, setTestItems] = useState<TestItem[]>([]);
+  const [materialsMaster, setMaterialsMaster] = useState<MaterialMaster[]>([]);
+  const [processParametersMaster, setProcessParametersMaster] = useState<ProcessParameterMaster[]>([]);
+  const [defectMasters, setDefectMasters] = useState<DefectMaster[]>([]);
   const [notes, setNotes] = useState<string>('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isEditingNotes, setIsEditingNotes] = useState(false);
@@ -83,14 +90,17 @@ export const ExperimentDetail = () => {
       if (!id) return;
       setIsLoading(true);
       try {
-        const [exp, samps, projs, items, profs, fprofs, atts] = await Promise.all([
+        const [exp, samps, projs, items, profs, fprofs, atts, mats, params, defs] = await Promise.all([
           getPersistentExperiment(id),
           getPersistentSamples(id),
           getPersistentProjects(),
           getPersistentTestItems(),
           getPersistentProfiles(),
           getPersistentFormulationProfiles(),
-          getPersistentAttachments(id)
+          getPersistentAttachments(id),
+          getPersistentMaterials(),
+          getPersistentProcessParameters(),
+          getPersistentDefectMasters()
         ]);
 
         if (exp) {
@@ -103,7 +113,7 @@ export const ExperimentDetail = () => {
           setFormulation(exp.formulation || []);
           setProcessConditions(exp.processConditions || []);
           setNotes(exp.notes || '');
-          setActiveFormulationProfileName(exp.recipeName || '未選擇設定檔');
+          setActiveFormulationProfileName('未選擇設定檔');
         } else {
           toast.error('找不到實驗紀錄');
           navigate('/experiments');
@@ -116,6 +126,23 @@ export const ExperimentDetail = () => {
         setProfiles(profs);
         setFormulationProfiles(fprofs);
         setAttachments(atts);
+        setMaterialsMaster(mats);
+        setProcessParametersMaster(params);
+        setDefectMasters(defs);
+        
+        // Merge master defects with existing defects in samples to prevent data loss
+        const masterDefectNames = defs.map(d => d.name);
+        const existingDefectNames = new Set<string>();
+        samps.forEach(s => {
+          s.defects?.forEach((d: any) => existingDefectNames.add(d.type));
+        });
+        
+        const combinedDefects = Array.from(new Set([...masterDefectNames, ...Array.from(existingDefectNames)]));
+        if (combinedDefects.length > 0) {
+          setDefectTypes(combinedDefects);
+        } else {
+          setDefectTypes(['刮傷', '氣泡', '灰塵', '黑點']);
+        }
       } catch (error) {
         console.error('Error fetching data:', error);
         toast.error('讀取數據失敗');
@@ -139,7 +166,7 @@ export const ExperimentDetail = () => {
     title: string;
     message: string;
     type: 'input' | 'confirm' | 'multi-input';
-    inputs?: { label: string; value: string; key: string }[];
+    inputs?: { label: string; value: string; key: string; list?: string; options?: { label: string; value: string }[] }[];
     onConfirm: (values?: any) => void;
   }>({
     isOpen: false,
@@ -162,13 +189,15 @@ export const ExperimentDetail = () => {
   };
 
   const handleUpdateFormulation = (id: string, field: keyof FormulationItem, value: any) => {
-    const updatedFormulation = formulation.map(item => item.id === id ? { ...item, [field]: value } : item);
-    setFormulation(updatedFormulation);
-    if (experiment) {
-      const updatedExp = { ...experiment, formulation: updatedFormulation };
-      setExperiment(updatedExp);
-      savePersistentExperiment(updatedExp);
-    }
+    setFormulation(prev => {
+      const updated = prev.map(item => item.id === id ? { ...item, [field]: value } : item);
+      if (experiment) {
+        const updatedExp = { ...experiment, formulation: updated };
+        setExperiment(updatedExp);
+        savePersistentExperiment(updatedExp);
+      }
+      return updated;
+    });
   };
 
   const handleRemoveFormulation = (id: string) => {
@@ -198,14 +227,16 @@ export const ExperimentDetail = () => {
     }
   };
 
-  const handleUpdateCondition = async (id: string, field: keyof ProcessCondition, value: any) => {
-    const updatedConditions = processConditions.map(c => c.id === id ? { ...c, [field]: value } : c);
-    setProcessConditions(updatedConditions);
-    if (experiment) {
-      const updatedExp = { ...experiment, processConditions: updatedConditions };
-      setExperiment(updatedExp);
-      await savePersistentExperiment(updatedExp);
-    }
+  const handleUpdateCondition = async (id: string, updates: Partial<ProcessCondition>) => {
+    setProcessConditions(prev => {
+      const updated = prev.map(c => c.id === id ? { ...c, ...updates } : c);
+      if (experiment) {
+        const updatedExp = { ...experiment, processConditions: updated };
+        setExperiment(updatedExp);
+        savePersistentExperiment(updatedExp);
+      }
+      return updated;
+    });
   };
 
   const handleRemoveCondition = async (id: string) => {
@@ -338,7 +369,7 @@ export const ExperimentDetail = () => {
       setFormulation(newFormulation);
       setActiveFormulationProfileName(profile.name);
       if (experiment) {
-        const updatedExp = { ...experiment, recipeName: profile.name, formulation: newFormulation };
+        const updatedExp = { ...experiment, formulation: newFormulation };
         setExperiment(updatedExp);
         savePersistentExperiment(updatedExp);
       }
@@ -425,7 +456,9 @@ export const ExperimentDetail = () => {
       onConfirm: async () => {
         const updatedSamples = samples.filter(s => s.id !== sampleId);
         setSamples(updatedSamples);
-        await savePersistentSamples(id || 'e1', updatedSamples);
+        if (id) {
+          await deletePersistentSample(id, sampleId);
+        }
         toast.success('樣品已刪除');
       }
     });
@@ -460,9 +493,18 @@ export const ExperimentDetail = () => {
     setPromptConfig({
       isOpen: true,
       title: '新增缺陷種類',
-      message: '請輸入新的缺陷種類名稱:',
+      message: '請選擇已儲存的缺陷種類或輸入新名稱:',
       type: 'input',
-      inputs: [{ label: '名稱', value: '', key: 'name' }],
+      inputs: [{ 
+        label: '名稱', 
+        value: '', 
+        key: 'name', 
+        list: 'defects-list',
+        options: [
+          { label: '--- 選擇已儲存項目 ---', value: '' },
+          ...defectMasters.map(d => ({ label: `${d.name} (${d.code})`, value: d.name }))
+        ]
+      }],
       onConfirm: (values) => {
         const newType = values.name;
         if (newType && !defectTypes.includes(newType)) {
@@ -644,7 +686,7 @@ export const ExperimentDetail = () => {
     if (!experiment) return;
     const updatedExp = { ...experiment, ...expData, notes };
     setExperiment(updatedExp);
-    setActiveFormulationProfileName(updatedExp.recipeName || '未選擇設定檔');
+    setActiveFormulationProfileName('未選擇設定檔');
     await savePersistentExperiment(updatedExp);
     toast.success('實驗資訊已更新');
     setIsExpModalOpen(false);
@@ -817,6 +859,17 @@ export const ExperimentDetail = () => {
         </div>
       )}
 
+      {/* Datalists for Master Data */}
+      <datalist id="materials-list">
+        {materialsMaster.map(m => <option key={m.id} value={m.name}>{m.supplier} {m.specModel}</option>)}
+      </datalist>
+      <datalist id="process-params-list">
+        {processParametersMaster.map(p => <option key={p.id} value={p.name}>{p.unit} ({p.category})</option>)}
+      </datalist>
+      <datalist id="defects-list">
+        {defectMasters.map(d => <option key={d.id} value={d.name}>{d.code} - {d.severity}</option>)}
+      </datalist>
+
       {/* Header Info */}
       <div className="glass-panel p-8 rounded-2xl">
         <div className="flex items-start justify-between mb-8">
@@ -864,68 +917,7 @@ export const ExperimentDetail = () => {
             </div>
             <div>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">配方名稱</p>
-              <p className="text-sm font-medium text-slate-900">{experiment.recipeName || '未設定'}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Observations & Conclusions */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="glass-panel p-8 rounded-2xl">
-          <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-brand-500" />
-            實驗觀察與結論
-          </h2>
-          <div className="space-y-6">
-            <div>
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">實驗觀察</h4>
-              <textarea
-                value={experiment.observations || ''}
-                onChange={(e) => handleUpdateExperimentField('observations', e.target.value)}
-                placeholder="輸入實驗觀察..."
-                rows={4}
-                className="w-full text-sm text-slate-700 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100 focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 outline-none transition-all resize-none"
-              />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">結論</h4>
-              <textarea
-                value={experiment.conclusions || ''}
-                onChange={(e) => handleUpdateExperimentField('conclusions', e.target.value)}
-                placeholder="輸入實驗結論..."
-                rows={4}
-                className="w-full text-sm text-slate-700 leading-relaxed bg-brand-50/30 p-4 rounded-xl border border-brand-100 focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 outline-none transition-all resize-none"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="glass-panel p-8 rounded-2xl">
-          <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-amber-500" />
-            異常說明與建議
-          </h2>
-          <div className="space-y-6">
-            <div>
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">異常說明</h4>
-              <textarea
-                value={experiment.anomalies || ''}
-                onChange={(e) => handleUpdateExperimentField('anomalies', e.target.value)}
-                placeholder="輸入異常說明..."
-                rows={4}
-                className="w-full text-sm text-slate-700 leading-relaxed bg-amber-50/30 p-4 rounded-xl border border-amber-100 focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 outline-none transition-all resize-none"
-              />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">後續建議</h4>
-              <textarea
-                value={experiment.suggestions || ''}
-                onChange={(e) => handleUpdateExperimentField('suggestions', e.target.value)}
-                placeholder="輸入後續建議..."
-                rows={4}
-                className="w-full text-sm text-slate-700 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100 focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 outline-none transition-all resize-none"
-              />
+              <p className="text-sm font-medium text-slate-900">{'未設定'}</p>
             </div>
           </div>
         </div>
@@ -1005,13 +997,36 @@ export const ExperimentDetail = () => {
                 {formulation.map((item) => (
                   <tr key={item.id}>
                     <td className="py-3 pr-4">
-                      <input 
-                        type="text" 
+                      <select 
                         value={item.materialName}
-                        onChange={(e) => handleUpdateFormulation(item.id, 'materialName', e.target.value)}
-                        placeholder="材料名稱..."
-                        className="w-full bg-transparent border-none focus:ring-0 text-sm text-slate-700 p-0"
-                      />
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const mat = materialsMaster.find(m => m.name === val);
+                          
+                          setFormulation(prev => {
+                            const updated = prev.map(f => f.id === item.id ? { 
+                              ...f, 
+                              materialName: val,
+                              unit: mat ? mat.unit : f.unit
+                            } : f);
+                            if (experiment) {
+                              const updatedExp = { ...experiment, formulation: updated };
+                              setExperiment(updatedExp);
+                              savePersistentExperiment(updatedExp);
+                            }
+                            return updated;
+                          });
+                        }}
+                        className="w-full bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500 text-sm text-slate-700 px-2 py-1 outline-none cursor-pointer"
+                      >
+                        <option value="" disabled>選擇材料...</option>
+                        {materialsMaster.map(m => (
+                          <option key={m.id} value={m.name}>{m.name} ({m.supplier})</option>
+                        ))}
+                        {item.materialName && !materialsMaster.find(m => m.name === item.materialName) && (
+                          <option value={item.materialName}>{item.materialName} (自定義)</option>
+                        )}
+                      </select>
                     </td>
                     <td className="py-3 pr-4">
                       <input 
@@ -1124,52 +1139,145 @@ export const ExperimentDetail = () => {
           </div>
           <div className="space-y-3 overflow-x-auto pb-2 custom-scrollbar">
             {processConditions.map((c) => (
-              <div key={c.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 min-w-[500px] sm:min-w-0">
-                <input 
-                  type="text" 
-                  value={c.name}
-                  onChange={(e) => handleUpdateCondition(c.id, 'name', e.target.value)}
-                  placeholder="條件名稱"
-                  className="flex-1 bg-transparent border-none focus:ring-0 text-sm font-bold text-slate-700 p-0"
-                />
-                <select 
-                  value={c.type}
-                  onChange={(e) => handleUpdateCondition(c.id, 'type', e.target.value as ProcessConditionType)}
-                  className="bg-white border border-slate-200 rounded text-[10px] px-2 py-1 outline-none"
-                >
-                  <option value="Energy">能量參數</option>
-                  <option value="Time">時間參數</option>
-                  <option value="Concentration">濃度參數</option>
-                  <option value="Temperature">溫度參數</option>
-                  <option value="Pressure">壓力參數</option>
-                  <option value="Other">其他參數</option>
-                </select>
-                <div className="flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-1">
-                  <input 
-                    type="number" 
-                    value={c.value}
-                    onChange={(e) => handleUpdateCondition(c.id, 'value', parseFloat(e.target.value))}
-                    className="w-12 bg-transparent border-none focus:ring-0 text-xs text-slate-700 p-0 text-right"
-                  />
-                  <input 
-                    type="text" 
-                    value={c.unit}
-                    onChange={(e) => handleUpdateCondition(c.id, 'unit', e.target.value)}
-                    placeholder="單位"
-                    className="w-8 bg-transparent border-none focus:ring-0 text-[10px] text-slate-400 p-0"
-                  />
+              <div key={c.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 min-w-[600px] sm:min-w-0">
+                <div className="flex-1 space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase">參數名稱</label>
+                  <select 
+                    value={c.name}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const param = processParametersMaster.find(p => p.name === val);
+                      
+                      handleUpdateCondition(c.id, {
+                        name: val,
+                        unit: param ? param.unit : c.unit,
+                        type: param ? param.category : c.type
+                      });
+                    }}
+                    className="w-full bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500 text-sm font-bold text-slate-700 px-2 py-1.5 outline-none cursor-pointer"
+                  >
+                    <option value="" disabled>選擇條件...</option>
+                    {processParametersMaster.map(p => (
+                      <option key={p.id} value={p.name}>{p.name}</option>
+                    ))}
+                    {c.name && !processParametersMaster.find(p => p.name === c.name) && (
+                      <option value={c.name}>{c.name} (自定義)</option>
+                    )}
+                  </select>
                 </div>
-                <button 
-                  onClick={() => handleRemoveCondition(c.id)}
-                  className="p-1 text-slate-300 hover:text-rose-500 transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+
+                <div className="w-24 space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase text-center block">類別</label>
+                  <select 
+                    value={c.type}
+                    onChange={(e) => {
+                      const newType = e.target.value as ProcessConditionType;
+                      handleUpdateCondition(c.id, { type: newType });
+                    }}
+                    className="w-full bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500 text-[10px] font-bold text-slate-500 px-1.5 py-1.5 outline-none cursor-pointer"
+                  >
+                    <option value="Temperature">溫度</option>
+                    <option value="Pressure">壓力</option>
+                    <option value="Time">時間</option>
+                    <option value="Energy">能量</option>
+                    <option value="Concentration">濃度</option>
+                    <option value="Other">其他</option>
+                  </select>
+                </div>
+
+                <div className="w-32 space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase text-center block">數值與單位</label>
+                  <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-1.5 py-1.5">
+                    <input 
+                      type="number" 
+                      value={c.value}
+                      onChange={(e) => handleUpdateCondition(c.id, { value: parseFloat(e.target.value) })}
+                      className="w-full bg-transparent border-none focus:ring-0 text-sm font-bold text-slate-700 p-0 text-right"
+                    />
+                    <input 
+                      type="text" 
+                      value={c.unit}
+                      onChange={(e) => handleUpdateCondition(c.id, { unit: e.target.value })}
+                      placeholder="單位"
+                      className="w-10 bg-transparent border-none focus:ring-0 text-[10px] text-slate-400 p-0"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-5">
+                  <button 
+                    onClick={() => handleRemoveCondition(c.id)}
+                    className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
             {processConditions.length === 0 && (
               <div className="py-8 text-center text-xs text-slate-400 italic">尚未設定製程條件</div>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Observations & Conclusions */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="glass-panel p-8 rounded-2xl">
+          <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
+            <FileText className="w-5 h-5 text-brand-500" />
+            實驗觀察與結論
+          </h2>
+          <div className="space-y-6">
+            <div>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">實驗觀察</h4>
+              <textarea
+                value={experiment.observations || ''}
+                onChange={(e) => handleUpdateExperimentField('observations', e.target.value)}
+                placeholder="輸入實驗觀察..."
+                rows={4}
+                className="w-full text-sm text-slate-700 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100 focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 outline-none transition-all resize-none"
+              />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">結論</h4>
+              <textarea
+                value={experiment.conclusions || ''}
+                onChange={(e) => handleUpdateExperimentField('conclusions', e.target.value)}
+                placeholder="輸入實驗結論..."
+                rows={4}
+                className="w-full text-sm text-slate-700 leading-relaxed bg-brand-50/30 p-4 rounded-xl border border-brand-100 focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 outline-none transition-all resize-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="glass-panel p-8 rounded-2xl">
+          <h2 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-amber-500" />
+            異常說明與建議
+          </h2>
+          <div className="space-y-6">
+            <div>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">異常說明</h4>
+              <textarea
+                value={experiment.anomalies || ''}
+                onChange={(e) => handleUpdateExperimentField('anomalies', e.target.value)}
+                placeholder="輸入異常說明..."
+                rows={4}
+                className="w-full text-sm text-slate-700 leading-relaxed bg-amber-50/30 p-4 rounded-xl border border-amber-100 focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 outline-none transition-all resize-none"
+              />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">後續建議</h4>
+              <textarea
+                value={experiment.suggestions || ''}
+                onChange={(e) => handleUpdateExperimentField('suggestions', e.target.value)}
+                placeholder="輸入後續建議..."
+                rows={4}
+                className="w-full text-sm text-slate-700 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100 focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 outline-none transition-all resize-none"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -1739,17 +1847,34 @@ export const ExperimentDetail = () => {
                   <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                     {input.label}
                   </label>
-                  <input
-                    type="text"
-                    autoFocus={idx === 0}
-                    value={input.value}
-                    onChange={(e) => {
-                      const newInputs = [...(promptConfig.inputs || [])];
-                      newInputs[idx].value = e.target.value;
-                      setPromptConfig({ ...promptConfig, inputs: newInputs });
-                    }}
-                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all"
-                  />
+                  {input.options ? (
+                    <select
+                      value={input.value}
+                      onChange={(e) => {
+                        const newInputs = [...(promptConfig.inputs || [])];
+                        newInputs[idx].value = e.target.value;
+                        setPromptConfig({ ...promptConfig, inputs: newInputs });
+                      }}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all cursor-pointer"
+                    >
+                      {input.options.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      autoFocus={idx === 0}
+                      list={input.list}
+                      value={input.value}
+                      onChange={(e) => {
+                        const newInputs = [...(promptConfig.inputs || [])];
+                        newInputs[idx].value = e.target.value;
+                        setPromptConfig({ ...promptConfig, inputs: newInputs });
+                      }}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                    />
+                  )}
                 </div>
               ))}
               {promptConfig.type === 'confirm' && (

@@ -48,7 +48,6 @@ export const ExperimentModal = ({ isOpen, onClose, onSave, initialData }: Experi
     anomalies: '',
     conclusions: '',
     suggestions: '',
-    recipeName: '',
     notes: '',
     status: 'Draft',
   });
@@ -64,7 +63,6 @@ export const ExperimentModal = ({ isOpen, onClose, onSave, initialData }: Experi
         anomalies: initialData.anomalies,
         conclusions: initialData.conclusions,
         suggestions: initialData.suggestions,
-        recipeName: initialData.recipeName || '',
         notes: initialData.notes || '',
         status: initialData.status,
       });
@@ -78,7 +76,6 @@ export const ExperimentModal = ({ isOpen, onClose, onSave, initialData }: Experi
         anomalies: '',
         conclusions: '',
         suggestions: '',
-        recipeName: '',
         notes: '',
         status: 'Draft',
       });
@@ -157,17 +154,6 @@ export const ExperimentModal = ({ isOpen, onClose, onSave, initialData }: Experi
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 outline-none transition-all"
                 />
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">配方名稱</label>
-              <input
-                type="text"
-                value={formData.recipeName}
-                onChange={(e) => setFormData({ ...formData, recipeName: e.target.value })}
-                placeholder="例如：標準配方 A-1"
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 outline-none transition-all"
-              />
             </div>
 
             <div className="space-y-2">

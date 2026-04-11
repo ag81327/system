@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   getPersistentExperiments, 
   getPersistentProjects, 
@@ -33,7 +34,6 @@ import { Experiment, User as AppUser } from '../types';
 import { ExperimentModal } from './ExperimentModal';
 import { useAuth } from './AuthContext';
 import { useComparison } from './ComparisonContext';
-import { motion, AnimatePresence } from 'motion/react';
 
 export const ExperimentList = () => {
   const navigate = useNavigate();
@@ -49,10 +49,14 @@ export const ExperimentList = () => {
   const [permissionExperiment, setPermissionExperiment] = useState<Experiment | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<'all' | 'Draft' | 'Completed'>('all');
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isDateRangeOpen, setIsDateRangeOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<'date' | 'title' | 'status'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [isSortOpen, setIsSortOpen] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -110,12 +114,61 @@ export const ExperimentList = () => {
     try {
       await deletePersistentExperiment(deleteConfirmId);
       setExperiments(experiments.filter(e => e.id !== deleteConfirmId));
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        next.delete(deleteConfirmId);
+        return next;
+      });
       setDeleteConfirmId(null);
       toast.success('實驗紀錄已刪除');
     } catch (error) {
       console.error('Error deleting experiment:', error);
       toast.error('刪除失敗');
     }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    
+    setPromptConfig({
+      isOpen: true,
+      title: '確認批量刪除',
+      message: `確定要刪除選取的 ${selectedIds.size} 筆實驗紀錄嗎？此動作無法復原。`,
+      type: 'confirm',
+      onConfirm: async () => {
+        try {
+          const promises = Array.from(selectedIds).map(id => deletePersistentExperiment(id));
+          await Promise.all(promises);
+          setExperiments(experiments.filter(e => !selectedIds.has(e.id)));
+          setSelectedIds(new Set());
+          toast.success('選取的實驗紀錄已刪除');
+        } catch (error) {
+          console.error('Error bulk deleting experiments:', error);
+          toast.error('部分刪除失敗');
+        }
+      }
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredExperiments.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredExperiments.map(e => e.id)));
+    }
+  };
+
+  const toggleSelect = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   };
 
   const handleSaveExperiment = async (expData: Omit<Experiment, 'id'>) => {
@@ -171,6 +224,20 @@ export const ExperimentList = () => {
     return matchesSearch && matchesStatus && matchesDate;
   });
 
+  const sortedExperiments = useMemo(() => {
+    return [...filteredExperiments].sort((a, b) => {
+      let comparison = 0;
+      if (sortBy === 'date') {
+        comparison = a.date.localeCompare(b.date);
+      } else if (sortBy === 'title') {
+        comparison = a.title.localeCompare(b.title);
+      } else if (sortBy === 'status') {
+        comparison = a.status.localeCompare(b.status);
+      }
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+  }, [filteredExperiments, sortBy, sortOrder]);
+
   const handleToggleComparison = (e: React.MouseEvent, exp: Experiment) => {
     e.stopPropagation();
     if (isInComparison(exp.id)) {
@@ -199,6 +266,20 @@ export const ExperimentList = () => {
       toast.error('更新權限失敗');
     }
   };
+
+  const [promptConfig, setPromptConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: 'confirm';
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'confirm',
+    onConfirm: () => {},
+  });
 
   if (isLoading) {
     return (
@@ -237,6 +318,76 @@ export const ExperimentList = () => {
             />
           </div>
           <div className="flex items-center gap-2">
+            {selectedIds.size > 0 && (
+              <button 
+                onClick={handleBulkDelete}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 transition-all animate-in fade-in slide-in-from-right-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                批量刪除 ({selectedIds.size})
+              </button>
+            )}
+            
+            <div className="relative">
+              <button 
+                onClick={() => {
+                  setIsSortOpen(!isSortOpen);
+                  setIsFilterOpen(false);
+                  setIsDateRangeOpen(false);
+                }}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-all",
+                  isSortOpen ? "bg-brand-50 border-brand-200 text-brand-600" : "text-slate-600 hover:bg-slate-50 border-slate-200"
+                )}
+              >
+                <LayoutGrid className="w-4 h-4" />
+                排序方式
+              </button>
+              
+              {isSortOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsSortOpen(false)}></div>
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 z-20 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="p-2">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 py-2">排序欄位</p>
+                      <button 
+                        onClick={() => { setSortBy('date'); setIsSortOpen(false); }}
+                        className={cn("w-full text-left px-3 py-2 text-sm rounded-lg transition-colors", sortBy === 'date' ? "bg-brand-50 text-brand-600 font-bold" : "text-slate-600 hover:bg-slate-50")}
+                      >
+                        日期
+                      </button>
+                      <button 
+                        onClick={() => { setSortBy('title'); setIsSortOpen(false); }}
+                        className={cn("w-full text-left px-3 py-2 text-sm rounded-lg transition-colors", sortBy === 'title' ? "bg-brand-50 text-brand-600 font-bold" : "text-slate-600 hover:bg-slate-50")}
+                      >
+                        標題
+                      </button>
+                      <button 
+                        onClick={() => { setSortBy('status'); setIsSortOpen(false); }}
+                        className={cn("w-full text-left px-3 py-2 text-sm rounded-lg transition-colors", sortBy === 'status' ? "bg-brand-50 text-brand-600 font-bold" : "text-slate-600 hover:bg-slate-50")}
+                      >
+                        狀態
+                      </button>
+                      <div className="h-px bg-slate-100 my-2"></div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 py-2">排序方向</p>
+                      <button 
+                        onClick={() => { setSortOrder('asc'); setIsSortOpen(false); }}
+                        className={cn("w-full text-left px-3 py-2 text-sm rounded-lg transition-colors", sortOrder === 'asc' ? "bg-brand-50 text-brand-600 font-bold" : "text-slate-600 hover:bg-slate-50")}
+                      >
+                        遞增 (A-Z)
+                      </button>
+                      <button 
+                        onClick={() => { setSortOrder('desc'); setIsSortOpen(false); }}
+                        className={cn("w-full text-left px-3 py-2 text-sm rounded-lg transition-colors", sortOrder === 'desc' ? "bg-brand-50 text-brand-600 font-bold" : "text-slate-600 hover:bg-slate-50")}
+                      >
+                        遞減 (Z-A)
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
             <div className="relative">
               <button 
                 onClick={() => {
@@ -349,6 +500,14 @@ export const ExperimentList = () => {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/50">
+                <th className="px-6 py-4 w-10">
+                  <input 
+                    type="checkbox"
+                    checked={selectedIds.size > 0 && selectedIds.size === sortedExperiments.length}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+                  />
+                </th>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">實驗標題</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">所屬專案</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">日期</th>
@@ -358,14 +517,25 @@ export const ExperimentList = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredExperiments.map((exp) => {
+              {sortedExperiments.map((exp) => {
                 const project = projects.find(p => p.id === exp.projectId);
                 return (
                   <tr 
                     key={exp.id} 
-                    className="hover:bg-slate-50/80 transition-colors group cursor-pointer"
+                    className={cn(
+                      "hover:bg-slate-50/80 transition-colors group cursor-pointer",
+                      selectedIds.has(exp.id) && "bg-brand-50/30"
+                    )}
                     onClick={() => navigate(`/experiments/${exp.id}`)}
                   >
+                    <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                      <input 
+                        type="checkbox"
+                        checked={selectedIds.has(exp.id)}
+                        onChange={(e) => toggleSelect(e as any, exp.id)}
+                        className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+                      />
+                    </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center text-brand-600 group-hover:bg-brand-600 group-hover:text-white transition-colors">
@@ -468,6 +638,48 @@ export const ExperimentList = () => {
         onSave={handleSaveExperiment}
         initialData={editingExperiment}
       />
+
+      {/* Bulk Delete Confirmation Modal */}
+      <AnimatePresence>
+        {promptConfig.isOpen && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+            >
+              <div className="p-6 border-b border-slate-100">
+                <h3 className="text-lg font-bold text-slate-900">{promptConfig.title}</h3>
+                <p className="text-sm text-slate-500 mt-1">{promptConfig.message}</p>
+              </div>
+              <div className="p-6">
+                <div className="flex items-center gap-3 p-4 bg-rose-50 rounded-xl border border-rose-100">
+                  <AlertCircle className="w-5 h-5 text-rose-500 shrink-0" />
+                  <p className="text-sm text-rose-700 font-medium">此動作無法復原。</p>
+                </div>
+              </div>
+              <div className="p-4 bg-slate-50 flex justify-end gap-3">
+                <button
+                  onClick={() => setPromptConfig({ ...promptConfig, isOpen: false })}
+                  className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    promptConfig.onConfirm();
+                    setPromptConfig({ ...promptConfig, isOpen: false });
+                  }}
+                  className="px-6 py-2 bg-rose-500 text-white rounded-lg text-sm font-bold hover:bg-rose-600 shadow-lg shadow-rose-200"
+                >
+                  確認刪除
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Permission Management Modal */}
       <AnimatePresence>
