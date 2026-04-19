@@ -24,6 +24,7 @@ export interface FormulationProfile {
   id: string;
   userId: string;
   name: string;
+  userId?: string; // Add ownership for isolation
   items: Omit<FormulationItem, 'id' | 'actualWeight'>[];
 }
 
@@ -41,6 +42,7 @@ export interface ProcessProfile {
   id: string;
   userId: string;
   name: string;
+  userId?: string; // Add ownership for isolation
   conditions: ProcessCondition[];
 }
 

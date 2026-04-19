@@ -1,5 +1,5 @@
 import { db } from '../firebase';
-import { collection, addDoc, query, where, onSnapshot, orderBy, limit, updateDoc, doc, getDocs } from 'firebase/firestore';
+import { collection, addDoc, query, where, onSnapshot, orderBy, limit, updateDoc, doc, getDocs, deleteDoc } from 'firebase/firestore';
 import { AppNotification, User } from '../types';
 
 export const createNotification = async (notification: Omit<AppNotification, 'id' | 'createdAt' | 'read'>) => {
@@ -69,7 +69,6 @@ export const markNotificationAsRead = async (notificationId: string) => {
 
 export const deleteNotification = async (notificationId: string) => {
   try {
-    const { deleteDoc } = await import('firebase/firestore');
     const docRef = doc(db, 'notifications', notificationId);
     await deleteDoc(docRef);
   } catch (error) {

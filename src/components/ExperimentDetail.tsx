@@ -39,11 +39,13 @@ import {
   deletePersistentTestItem,
   getPersistentProfiles, 
   savePersistentProfiles,
+  deletePersistentProfile,
   getPersistentSamples,
   savePersistentSamples,
   deletePersistentSample,
   getPersistentFormulationProfiles,
   savePersistentFormulationProfiles,
+  deletePersistentFormulationProfile,
   getPersistentExperiment,
   savePersistentExperiment,
   savePersistentProject,
@@ -283,6 +285,7 @@ export const ExperimentDetail = () => {
             id: `prof${Date.now()}`,
             userId: user?.id || '',
             name,
+            userId: user?.id,
             conditions: [...processConditions]
           };
           const updatedProfiles = [...profiles, newProfile];
@@ -309,6 +312,27 @@ export const ExperimentDetail = () => {
       setIsProfileDropdownOpen(false);
       toast.success(`已載入製程設定檔: ${profile.name}`);
     }
+  };
+
+  const handleDeleteProfile = async (profileId: string) => {
+    const profile = profiles.find(p => p.id === profileId);
+    if (!profile) return;
+
+    setPromptConfig({
+      isOpen: true,
+      title: '刪除設定檔',
+      message: `確定要永久刪除製程設定檔 "${profile.name}" 嗎？`,
+      type: 'confirm',
+      onConfirm: async () => {
+        try {
+          await deletePersistentProfile(profileId);
+          setProfiles(prev => prev.filter(p => p.id !== profileId));
+          toast.success(`已刪除設定檔: ${profile.name}`);
+        } catch (error) {
+          toast.error('刪除失敗');
+        }
+      }
+    });
   };
 
   const handleSaveFormulationProfile = () => {
@@ -348,6 +372,7 @@ export const ExperimentDetail = () => {
             id: `fprof${Date.now()}`,
             userId: user?.id || '',
             name,
+            userId: user?.id,
             items: formulation.map(({ materialName, batchNumber, theoreticalWeight, unit }) => ({ materialName, batchNumber, theoreticalWeight, unit }))
           };
           const updatedProfiles = [...formulationProfiles, newProfile];
@@ -378,6 +403,27 @@ export const ExperimentDetail = () => {
       setIsFormulationProfileDropdownOpen(false);
       toast.success(`已載入配置設定檔: ${profile.name}`);
     }
+  };
+
+  const handleDeleteFormulationProfile = async (profileId: string) => {
+    const profile = formulationProfiles.find(p => p.id === profileId);
+    if (!profile) return;
+
+    setPromptConfig({
+      isOpen: true,
+      title: '刪除配置設定檔',
+      message: `確定要永久刪除配置設定檔 "${profile.name}" 嗎？`,
+      type: 'confirm',
+      onConfirm: async () => {
+        try {
+          await deletePersistentFormulationProfile(profileId);
+          setFormulationProfiles(prev => prev.filter(p => p.id !== profileId));
+          toast.success(`已刪除配置設定檔: ${profile.name}`);
+        } catch (error) {
+          toast.error('刪除失敗');
+        }
+      }
+    });
   };
 
   const handleAddSample = () => {
@@ -955,13 +1001,26 @@ export const ExperimentDetail = () => {
                     ></div>
                     <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-100 z-20 overflow-hidden">
                       {formulationProfiles.map(p => (
-                        <button 
-                          key={p.id}
-                          onClick={() => handleLoadFormulationProfile(p.id)}
-                          className="w-full text-left px-4 py-2 text-xs text-slate-600 hover:bg-slate-50 border-b border-slate-50 last:border-none"
-                        >
-                          {p.name}
-                        </button>
+                        <div key={p.id} className="flex items-center group/item hover:bg-slate-50 border-b border-slate-50 last:border-none">
+                          <button 
+                            onClick={() => handleLoadFormulationProfile(p.id)}
+                            className="flex-1 text-left px-4 py-2 text-xs text-slate-600"
+                          >
+                            {p.name}
+                          </button>
+                          {(user?.role === 'Admin' || p.userId === user?.id) && (
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteFormulationProfile(p.id);
+                              }}
+                              className="px-3 py-2 text-slate-300 hover:text-rose-500 opacity-0 group-hover/item:opacity-100 transition-opacity"
+                              title="刪除此設定檔"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       ))}
                       {formulationProfiles.length === 0 && (
                         <div className="px-4 py-3 text-[10px] text-slate-400 italic">無可用設定檔</div>
@@ -1110,13 +1169,27 @@ export const ExperimentDetail = () => {
                     ></div>
                     <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-100 z-20 overflow-hidden">
                       {profiles.map(p => (
-                        <button 
-                          key={p.id}
-                          onClick={() => handleLoadProfile(p.id)}
-                          className="w-full text-left px-4 py-2 text-xs text-slate-600 hover:bg-slate-50 border-b border-slate-50 last:border-none"
-                        >
-                          {p.name}
-                        </button>
+                        <div key={p.id} className="flex items-center group/item hover:bg-slate-50 border-b border-slate-50 last:border-none">
+                          <button 
+                            key={p.id}
+                            onClick={() => handleLoadProfile(p.id)}
+                            className="flex-1 text-left px-4 py-2 text-xs text-slate-600"
+                          >
+                            {p.name}
+                          </button>
+                          {(user?.role === 'Admin' || p.userId === user?.id) && (
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteProfile(p.id);
+                              }}
+                              className="px-3 py-2 text-slate-300 hover:text-rose-500 opacity-0 group-hover/item:opacity-100 transition-opacity"
+                              title="刪除此設定檔"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       ))}
                       {profiles.length === 0 && (
                         <div className="px-4 py-3 text-[10px] text-slate-400 italic">無可用設定檔</div>

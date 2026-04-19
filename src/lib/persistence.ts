@@ -97,6 +97,10 @@ export const savePersistentProfiles = async (profiles: ProcessProfile[]) => {
   }
 };
 
+export const deletePersistentProfile = async (id: string) => {
+  await firebaseService.deleteProcessProfile(id);
+};
+
 export const getPersistentFormulationProfiles = async (userId?: string): Promise<FormulationProfile[]> => {
   return firebaseService.getFormulationProfiles(userId);
 };
@@ -105,6 +109,10 @@ export const savePersistentFormulationProfiles = async (profiles: FormulationPro
   for (const profile of profiles) {
     await firebaseService.saveFormulationProfile(profile);
   }
+};
+
+export const deletePersistentFormulationProfile = async (id: string) => {
+  await firebaseService.deleteFormulationProfile(id);
 };
 
 export const getPersistentAttachments = async (parentId: string): Promise<Attachment[]> => {

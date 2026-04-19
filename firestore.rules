@@ -44,7 +44,8 @@ service cloud.firestore {
     //   - id: string (required)
     //   - experimentId: string (required)
     //   - sampleCode: string (required)
-    //   ... other fields
+    //   - batchNumber: string (required)
+    //   - createdAt: string (required)
     //
     // Collection: attachments
     // Document ID: attachmentId
@@ -351,18 +352,16 @@ service cloud.firestore {
     }
 
     match /processProfiles/{profileId} {
-      allow list: if isApproved() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow get: if isApproved() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list, get: if isApproved() && (!('userId' in resource.data) || resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isApproved() && request.resource.data.userId == request.auth.uid;
-      allow update: if isApproved() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow update: if isApproved() && (isAdmin() || (resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid));
       allow delete: if isApproved() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     match /formulationProfiles/{profileId} {
-      allow list: if isApproved() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow get: if isApproved() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list, get: if isApproved() && (!('userId' in resource.data) || resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isApproved() && request.resource.data.userId == request.auth.uid;
-      allow update: if isApproved() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow update: if isApproved() && (isAdmin() || (resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid));
       allow delete: if isApproved() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 

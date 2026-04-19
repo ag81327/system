@@ -150,6 +150,8 @@ export const firebaseService = {
     return getCollection<FormulationProfile>('formulationProfiles');
   },
   saveFormulationProfile: (profile: FormulationProfile) => saveDocument('formulationProfiles', profile),
+  deleteProcessProfile: (id: string) => removeDocument('processProfiles', id),
+  deleteFormulationProfile: (id: string) => removeDocument('formulationProfiles', id),
   deleteTestItem: (id: string) => removeDocument('testItems', id),
 
   // Master Data
@@ -187,6 +189,9 @@ export const firebaseService = {
   getCalendarEvents: () => getCollection<CalendarEvent>('calendarEvents'),
   saveCalendarEvent: (event: CalendarEvent) => saveDocument('calendarEvents', event),
   deleteCalendarEvent: (id: string) => removeDocument('calendarEvents', id),
+
+  // Notifications
+  deleteNotification: (id: string) => removeDocument('notifications', id),
 
   // Recipes
   getRecipes: (projectId?: string) => {

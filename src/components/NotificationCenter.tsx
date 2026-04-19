@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, Check, Trash2, ExternalLink, X, Info, AlertCircle, CheckCircle } from 'lucide-react';
+import { Bell, Trash2, ExternalLink, Info, AlertCircle, CheckCircle } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { cn } from '../lib/utils';
 import { formatDistanceToNow } from 'date-fns';
@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const NotificationCenter: React.FC = () => {
-  const { notifications, unreadCount, markAsRead, removeNotification } = useAuth();
+  const { notifications, unreadCount, markAsRead, deleteNotification } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -102,24 +102,26 @@ export const NotificationCenter: React.FC = () => {
                           <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
                             {notif.message}
                           </p>
-                          {notif.link && (
-                            <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-brand-600">
-                              <ExternalLink className="w-3 h-3" />
-                              查看詳情
+                            <div className="mt-2 flex items-center justify-between">
+                              {notif.link && (
+                                <div className="flex items-center gap-1 text-[10px] font-bold text-brand-600">
+                                  <ExternalLink className="w-3 h-3" />
+                                  查看詳情
+                                </div>
+                              )}
                             </div>
-                          )}
+                          </div>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteNotification(notif.id);
+                            }}
+                            className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all ml-2"
+                            title="刪除通知"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeNotification(notif.id);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
-                          title="刪除通知"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
                       {!notif.read && (
                         <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1 h-8 bg-brand-500 rounded-full"></div>
                       )}

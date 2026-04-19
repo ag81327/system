@@ -28,7 +28,7 @@ interface AuthContextType {
   notifications: AppNotification[];
   unreadCount: number;
   markAsRead: (id: string) => Promise<void>;
-  removeNotification: (id: string) => Promise<void>;
+  deleteNotification: (id: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -366,9 +366,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await markNotificationAsRead(id);
   };
 
-  const removeNotification = async (id: string) => {
-    const { deleteNotification } = await import('../services/notificationService');
-    await deleteNotification(id);
+  const deleteNotification = async (id: string) => {
+    const { deleteNotification: deleteNotif } = await import('../services/notificationService');
+    await deleteNotif(id);
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -389,7 +389,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       notifications,
       unreadCount,
       markAsRead,
-      removeNotification
+      deleteNotification
     }}>
       {children}
     </AuthContext.Provider>
