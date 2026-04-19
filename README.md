@@ -21,10 +21,24 @@ View your app in AI Studio: https://ai.studio/apps/aa28ddf3-856f-4bcc-9906-199b5
 
 ## Deployment
 
-本專案包含一組 GitHub Action (`.github/workflows/deploy.yml`)，當推送到 `main` 分支時會自動編譯 (`npm run build`) 將 `dist` 資料夾的靜態檔案發布至 GitHub Pages。
+本專案包含一組 GitHub Action (`.github/workflows/deploy.yml`)，當推送到 `main` 分支時會自動編譯並發布至 GitHub Pages。
 
-**注意：**
-請確認專案在 GitHub Settings 裡的 Pages 設定中，將來源設定為「GitHub Actions」。
+### 設定部署環境變數 (GitHub Secrets)
+
+由於專案需要 API 金鑰等敏感資訊，請在 GitHub 儲存庫中設定以下 Secrets：
+
+1. 前往 GitHub 專案頁面，點選 **Settings** > **Secrets and variables** > **Actions**。
+2. 點擊 **New repository secret**。
+3. 依序新增以下變數：
+   - `GEMINI_API_KEY`: 您的 Gemini API 金鑰。
+   - `APP_URL`: 您預計部署後的網址 (例如 `https://<username>.github.io/<repo-name>/`)。
+
+### 部署步驟
+
+1. **確認 GitHub Pages 設定**：
+   在 GitHub Settings 裡的 Pages 設定中，將 **Build and deployment > Source** 設定為 「**GitHub Actions**」。
+2. **推送代碼**：
+   將代碼推送到 `main` 分支，GitHub Actions 將會自動啟動建置與部署。
 
 ## Other Modifications
 
