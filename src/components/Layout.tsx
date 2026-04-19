@@ -146,7 +146,7 @@ export const Layout = () => {
             <div className="w-10 h-10 bg-brand-600 rounded-xl flex items-center justify-center shadow-lg shadow-brand-200">
               <Database className="text-white w-6 h-6" />
             </div>
-            <span className="font-bold text-xl tracking-tight text-slate-800">研發數據平台</span>
+            <span className="font-bold text-xl tracking-tight text-slate-800">摩爾應材研發數據管理平台</span>
           </div>
           <button 
             onClick={() => setIsSidebarOpen(false)}
