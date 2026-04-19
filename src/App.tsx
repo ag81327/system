@@ -89,7 +89,7 @@ export default function App() {
   return (
     <AuthProvider>
       <ComparisonProvider>
-        <BrowserRouter>
+        <BrowserRouter basename="/RD-test-system">
           <Toaster position="top-center" richColors />
           <AppRoutes />
         </BrowserRouter>
