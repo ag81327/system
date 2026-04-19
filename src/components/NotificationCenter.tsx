@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 
 export const NotificationCenter: React.FC = () => {
-  const { notifications, unreadCount, markAsRead } = useAuth();
+  const { notifications, unreadCount, markAsRead, removeNotification } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -109,6 +109,16 @@ export const NotificationCenter: React.FC = () => {
                             </div>
                           )}
                         </div>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeNotification(notif.id);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                          title="刪除通知"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                       {!notif.read && (
                         <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1 h-8 bg-brand-500 rounded-full"></div>

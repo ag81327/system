@@ -1,5 +1,5 @@
 import React from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
@@ -89,10 +89,10 @@ export default function App() {
   return (
     <AuthProvider>
       <ComparisonProvider>
-        <HashRouter>
+        <BrowserRouter>
           <Toaster position="top-center" richColors />
           <AppRoutes />
-        </HashRouter>
+        </BrowserRouter>
       </ComparisonProvider>
     </AuthProvider>
   );

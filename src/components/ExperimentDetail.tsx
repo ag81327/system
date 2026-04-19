@@ -58,7 +58,7 @@ import {
 export const ExperimentDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { canAccessExperiment } = useAuth();
+  const { canAccessExperiment, user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [experiment, setExperiment] = useState<Experiment | null>(null);
@@ -95,8 +95,8 @@ export const ExperimentDetail = () => {
           getPersistentSamples(id),
           getPersistentProjects(),
           getPersistentTestItems(),
-          getPersistentProfiles(),
-          getPersistentFormulationProfiles(),
+          getPersistentProfiles(user?.id),
+          getPersistentFormulationProfiles(user?.id),
           getPersistentAttachments(id),
           getPersistentMaterials(),
           getPersistentProcessParameters(),
@@ -279,8 +279,9 @@ export const ExperimentDetail = () => {
             return;
           }
 
-          const newProfile = {
+          const newProfile: ProcessProfile = {
             id: `prof${Date.now()}`,
+            userId: user?.id || '',
             name,
             conditions: [...processConditions]
           };
@@ -345,6 +346,7 @@ export const ExperimentDetail = () => {
 
           const newProfile: FormulationProfile = {
             id: `fprof${Date.now()}`,
+            userId: user?.id || '',
             name,
             items: formulation.map(({ materialName, batchNumber, theoreticalWeight, unit }) => ({ materialName, batchNumber, theoreticalWeight, unit }))
           };

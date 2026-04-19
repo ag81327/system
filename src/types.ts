@@ -22,6 +22,7 @@ export interface FormulationItem {
 
 export interface FormulationProfile {
   id: string;
+  userId: string;
   name: string;
   items: Omit<FormulationItem, 'id' | 'actualWeight'>[];
 }
@@ -38,6 +39,7 @@ export interface ProcessCondition {
 
 export interface ProcessProfile {
   id: string;
+  userId: string;
   name: string;
   conditions: ProcessCondition[];
 }

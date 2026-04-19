@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, UserPermission, AppNotification } from '../types';
 import { auth, db } from '../firebase';
 import { 
@@ -28,6 +28,7 @@ interface AuthContextType {
   notifications: AppNotification[];
   unreadCount: number;
   markAsRead: (id: string) => Promise<void>;
+  removeNotification: (id: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -40,12 +41,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     let userUnsubscribe: (() => void) | null = null;
-    let notificationUnsubscribe: (() => void) | null = null;
+    let permissionsUnsubscribe: (() => void) | null = null;
 
     const authUnsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (userUnsubscribe) { userUnsubscribe(); userUnsubscribe = null; }
+      if (permissionsUnsubscribe) { permissionsUnsubscribe(); permissionsUnsubscribe = null; }
+
       if (firebaseUser) {
         // Listen to user profile changes in real-time
         const userDocRef = doc(db, 'users', firebaseUser.uid);
+        const permDocRef = doc(db, 'permissions', firebaseUser.uid);
         
         userUnsubscribe = onSnapshot(userDocRef, async (userDoc) => {
           if (userDoc.exists()) {
@@ -59,24 +64,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             
             setUser(userData);
-            
-            // Fetch permissions
-            if (userData.isApproved || userData.role === 'Admin') {
-              try {
-                const permDocRef = doc(db, 'permissions', firebaseUser.uid);
-                const permDoc = await getDoc(permDocRef);
-                if (permDoc.exists()) {
-                  setPermissions(permDoc.data() as UserPermission);
-                } else {
-                  setPermissions({ userId: firebaseUser.uid, projectIds: [] });
-                }
-              } catch (permError) {
-                console.warn('Permissions fetch failed:', permError);
-                setPermissions({ userId: firebaseUser.uid, projectIds: [] });
-              }
-            } else {
-              setPermissions({ userId: firebaseUser.uid, projectIds: [] });
-            }
           } else {
             // If user exists in Auth but not in Firestore, create a default profile
             const isBootstrapAdmin = firebaseUser.email?.toLowerCase() === 'amos12282000@gmail.com';
@@ -107,11 +94,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
           setIsLoading(false);
         });
+
+        // Fetch permissions in real-time
+        permissionsUnsubscribe = onSnapshot(permDocRef, (permDoc) => {
+          if (permDoc.exists()) {
+            setPermissions(permDoc.data() as UserPermission);
+          } else {
+            setPermissions({ userId: firebaseUser.uid, projectIds: [] });
+          }
+        }, (error) => {
+          console.warn('Permissions snapshot error:', error);
+          // If we can't read our own permissions, set to default empty
+          setPermissions({ userId: firebaseUser.uid, projectIds: [] });
+        });
       } else {
         setUser(null);
         setPermissions(null);
         setNotifications([]);
-        if (userUnsubscribe) userUnsubscribe();
         setIsLoading(false);
       }
     });
@@ -119,6 +118,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       authUnsubscribe();
       if (userUnsubscribe) userUnsubscribe();
+      if (permissionsUnsubscribe) permissionsUnsubscribe();
     };
   }, []);
 
@@ -301,13 +301,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const canAccessProject = (projectId: string): boolean => {
+  const canAccessProject = useCallback((projectId: string): boolean => {
     if (!user) return false;
     if (user.role === 'Admin') return true;
     return permissions?.projectIds.includes(projectId) || false;
-  };
+  }, [user, permissions]);
 
-  const canAccessExperiment = (projectId: string, experimentDate: string): boolean => {
+  const canAccessExperiment = useCallback((projectId: string, experimentDate: string): boolean => {
     if (!user) return false;
     if (user.role === 'Admin') return true;
     
@@ -359,11 +359,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (expDate > end) return false;
     }
     return true;
-  };
+  }, [user, permissions]);
 
   const markAsRead = async (id: string) => {
     const { markNotificationAsRead } = await import('../services/notificationService');
     await markNotificationAsRead(id);
+  };
+
+  const removeNotification = async (id: string) => {
+    const { deleteNotification } = await import('../services/notificationService');
+    await deleteNotification(id);
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -383,7 +388,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       canAccessExperiment,
       notifications,
       unreadCount,
-      markAsRead
+      markAsRead,
+      removeNotification
     }}>
       {children}
     </AuthContext.Provider>

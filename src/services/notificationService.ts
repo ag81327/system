@@ -66,3 +66,13 @@ export const markNotificationAsRead = async (notificationId: string) => {
     console.error('Error marking notification as read:', error);
   }
 };
+
+export const deleteNotification = async (notificationId: string) => {
+  try {
+    const { deleteDoc } = await import('firebase/firestore');
+    const docRef = doc(db, 'notifications', notificationId);
+    await deleteDoc(docRef);
+  } catch (error) {
+    console.error('Error deleting notification:', error);
+  }
+};

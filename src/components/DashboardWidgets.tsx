@@ -644,6 +644,7 @@ export const DashboardCalendar = () => {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [isAdding, setIsAdding] = useState(false);
+  const [isViewing, setIsViewing] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [newEvent, setNewEvent] = useState({ title: '', time: '09:00', description: '', participants: [] as string[] });
 
@@ -778,7 +779,11 @@ export const DashboardCalendar = () => {
               key={day} 
               onClick={() => {
                 setSelectedDate(dateStr);
-                setIsAdding(true);
+                if (hasEvent) {
+                  setIsViewing(true);
+                } else {
+                  setIsAdding(true);
+                }
               }}
               className={cn(
                 "aspect-square flex flex-col items-center justify-center rounded-lg text-xs transition-all relative cursor-pointer",
@@ -831,6 +836,81 @@ export const DashboardCalendar = () => {
           <p className="text-xs text-slate-400 text-center py-4 italic">目前無近期活動</p>
         )}
       </div>
+
+      {/* View Events Modal */}
+      {isViewing && selectedDate && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">活動詳情 - {selectedDate}</h3>
+              <button onClick={() => setIsViewing(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
+              {events.filter(e => e.date === selectedDate).length > 0 ? (
+                events.filter(e => e.date === selectedDate).map(event => (
+                  <div key={event.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-3 relative group">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
+                        <span className="text-xs font-bold text-slate-500">{event.time}</span>
+                      </div>
+                      <button 
+                        onClick={() => handleDeleteEvent(event.id)}
+                        className="p-1 px-2 text-[10px] font-bold text-rose-500 hover:bg-rose-50 rounded transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        刪除
+                      </button>
+                    </div>
+                    <h4 className="font-bold text-slate-900">{event.title}</h4>
+                    {event.description && (
+                      <p className="text-xs text-slate-500 leading-relaxed">{event.description}</p>
+                    )}
+                    {event.participants.length > 0 && (
+                      <div className="pt-2 border-t border-slate-200/50">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">參與人員</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {event.participants.map(uid => {
+                            const user = users.find(u => u.id === uid);
+                            return user ? (
+                              <span key={uid} className="text-[10px] bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-600">
+                                {user.name}
+                              </span>
+                            ) : null;
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="py-12 text-center">
+                  <CalendarIcon className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                  <p className="text-sm text-slate-400">當日尚無活動</p>
+                </div>
+              )}
+            </div>
+            <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
+              <button 
+                onClick={() => setIsViewing(false)}
+                className="flex-1 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+              >
+                關閉
+              </button>
+              <button 
+                onClick={() => {
+                  setIsViewing(false);
+                  setIsAdding(true);
+                }}
+                className="flex-1 py-2 text-sm font-bold bg-brand-500 text-white hover:bg-brand-600 rounded-xl shadow-lg shadow-brand-200 transition-all"
+              >
+                新增活動
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Event Modal */}
       {isAdding && (

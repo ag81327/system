@@ -87,8 +87,8 @@ export const deletePersistentTestItem = async (id: string) => {
   await firebaseService.deleteTestItem(id);
 };
 
-export const getPersistentProfiles = async (): Promise<ProcessProfile[]> => {
-  return firebaseService.getProcessProfiles();
+export const getPersistentProfiles = async (userId?: string): Promise<ProcessProfile[]> => {
+  return firebaseService.getProcessProfiles(userId);
 };
 
 export const savePersistentProfiles = async (profiles: ProcessProfile[]) => {
@@ -97,8 +97,8 @@ export const savePersistentProfiles = async (profiles: ProcessProfile[]) => {
   }
 };
 
-export const getPersistentFormulationProfiles = async (): Promise<FormulationProfile[]> => {
-  return firebaseService.getFormulationProfiles();
+export const getPersistentFormulationProfiles = async (userId?: string): Promise<FormulationProfile[]> => {
+  return firebaseService.getFormulationProfiles(userId);
 };
 
 export const savePersistentFormulationProfiles = async (profiles: FormulationProfile[]) => {

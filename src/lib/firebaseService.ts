@@ -134,9 +134,21 @@ export const firebaseService = {
   // Profiles & Test Items
   getTestItems: () => getCollection<TestItem>('testItems'),
   saveTestItem: (item: TestItem) => saveDocument('testItems', item),
-  getProcessProfiles: () => getCollection<ProcessProfile>('processProfiles'),
+  getProcessProfiles: (userId?: string) => {
+    if (userId) {
+      const q = query(collection(db, 'processProfiles'), where('userId', '==', userId));
+      return getDocs(q).then(snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProcessProfile)));
+    }
+    return getCollection<ProcessProfile>('processProfiles');
+  },
   saveProcessProfile: (profile: ProcessProfile) => saveDocument('processProfiles', profile),
-  getFormulationProfiles: () => getCollection<FormulationProfile>('formulationProfiles'),
+  getFormulationProfiles: (userId?: string) => {
+    if (userId) {
+      const q = query(collection(db, 'formulationProfiles'), where('userId', '==', userId));
+      return getDocs(q).then(snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as FormulationProfile)));
+    }
+    return getCollection<FormulationProfile>('formulationProfiles');
+  },
   saveFormulationProfile: (profile: FormulationProfile) => saveDocument('formulationProfiles', profile),
   deleteTestItem: (id: string) => removeDocument('testItems', id),
 

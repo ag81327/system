@@ -305,7 +305,7 @@ service cloud.firestore {
     }
 
     match /permissions/{userId} {
-      allow read: if (isOwner(userId) || isAdmin()) && isApproved();
+      allow read: if isApproved();
       allow write: if isAdmin();
     }
 
@@ -315,11 +315,13 @@ service cloud.firestore {
     }
 
     match /experiments/{experimentId} {
-      allow read: if isApproved() && isWithinAccessRange(resource.data.date);
+      allow list: if isApproved();
+      allow get: if isApproved() && isWithinAccessRange(resource.data.date);
       allow write: if isApproved() && (isAdmin() || isWithinAccessRange(request.resource.data.date)); 
       
       match /samples/{sampleId} {
-        allow read: if isApproved() && isWithinAccessRange(get(/databases/$(database)/documents/experiments/$(experimentId)).data.date);
+        allow list: if isApproved();
+        allow get: if isApproved() && isWithinAccessRange(get(/databases/$(database)/documents/experiments/$(experimentId)).data.date);
         allow write: if isApproved() && isWithinAccessRange(get(/databases/$(database)/documents/experiments/$(experimentId)).data.date);
       }
     }
@@ -349,13 +351,19 @@ service cloud.firestore {
     }
 
     match /processProfiles/{profileId} {
-      allow read: if isApproved();
-      allow write: if isApproved();
+      allow list: if isApproved() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isApproved() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isApproved() && request.resource.data.userId == request.auth.uid;
+      allow update: if isApproved() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow delete: if isApproved() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     match /formulationProfiles/{profileId} {
-      allow read: if isApproved();
-      allow write: if isApproved();
+      allow list: if isApproved() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isApproved() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isApproved() && request.resource.data.userId == request.auth.uid;
+      allow update: if isApproved() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid;
+      allow delete: if isApproved() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     match /attachments/{attachmentId} {
