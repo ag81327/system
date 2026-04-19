@@ -285,7 +285,6 @@ export const ExperimentDetail = () => {
             id: `prof${Date.now()}`,
             userId: user?.id || '',
             name,
-            userId: user?.id,
             conditions: [...processConditions]
           };
           const updatedProfiles = [...profiles, newProfile];
@@ -372,7 +371,6 @@ export const ExperimentDetail = () => {
             id: `fprof${Date.now()}`,
             userId: user?.id || '',
             name,
-            userId: user?.id,
             items: formulation.map(({ materialName, batchNumber, theoreticalWeight, unit }) => ({ materialName, batchNumber, theoreticalWeight, unit }))
           };
           const updatedProfiles = [...formulationProfiles, newProfile];
