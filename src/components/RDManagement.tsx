@@ -20,7 +20,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from './AuthContext';
 
 export const RDManagement: React.FC = () => {
-  const { user } = useAuth();
+  const { user, canAccessProject } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [experiments, setExperiments] = useState<Experiment[]>([]);
@@ -42,15 +42,24 @@ export const RDManagement: React.FC = () => {
         getPersistentDOESessions(),
         getPersistentRecipes()
       ]);
-      setProjects(p);
-      setExperiments(e);
-      setDoeSessions(d);
-      setRecipes(r);
-      if (p.length > 0) setSelectedProjectId(p[0].id);
+      
+      const accessibleProjects = p.filter(proj => canAccessProject(proj.id));
+      const accessibleProjectIds = new Set(accessibleProjects.map(proj => proj.id));
+      
+      const accessibleExperiments = e.filter(exp => accessibleProjectIds.has(exp.projectId));
+      const accessibleDoeSessions = d.filter(ds => accessibleProjectIds.has(ds.projectId));
+      const accessibleRecipes = r.filter(rec => accessibleProjectIds.has(rec.projectId));
 
-      // Fetch samples for all experiments for data mining
+      setProjects(accessibleProjects);
+      setExperiments(accessibleExperiments);
+      setDoeSessions(accessibleDoeSessions);
+      setRecipes(accessibleRecipes);
+
+      if (accessibleProjects.length > 0) setSelectedProjectId(accessibleProjects[0].id);
+
+      // Fetch samples for accessible experiments for data mining
       const sampleMap: Record<string, Sample[]> = {};
-      await Promise.all(e.map(async (exp) => {
+      await Promise.all(accessibleExperiments.map(async (exp) => {
         const s = await getPersistentSamples(exp.id);
         sampleMap[exp.id] = s;
       }));

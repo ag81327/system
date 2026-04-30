@@ -77,7 +77,7 @@ const AppRoutes = () => {
         <Route path="comparison" element={<DataComparison />} />
         <Route path="analysis" element={<Analysis />} />
         <Route path="users" element={<ProtectedRoute requireAdmin><UserManagement /></ProtectedRoute>} />
-        <Route path="master-data" element={<ProtectedRoute requireAdmin><MasterDataSettings /></ProtectedRoute>} />
+        <Route path="master-data" element={<ProtectedRoute><MasterDataSettings /></ProtectedRoute>} />
         <Route path="rd-center" element={<RDManagement />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
