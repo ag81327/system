@@ -161,6 +161,7 @@ export const ExperimentDetail = () => {
   const [isFormulationProfileDropdownOpen, setIsFormulationProfileDropdownOpen] = useState(false);
   const [activeTestItem, setActiveTestItem] = useState<TestItem | null>(null);
   const [activeSampleId, setActiveSampleId] = useState<string | null>(null);
+  const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
 
   // Prompt Modal State
   const [promptConfig, setPromptConfig] = useState<{
@@ -1449,7 +1450,8 @@ export const ExperimentDetail = () => {
                   <img 
                     src={att.url} 
                     alt={att.name} 
-                    className="w-full h-full object-cover transition-transform group-hover:scale-110"
+                    onClick={() => setSelectedAttachment(att)}
+                    className="w-full h-full object-cover transition-transform group-hover:scale-110 cursor-pointer"
                     referrerPolicy="no-referrer"
                   />
                 ) : (
@@ -1460,9 +1462,9 @@ export const ExperimentDetail = () => {
                 )}
                 <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                   <button 
-                    onClick={() => window.open(att.url, '_blank')}
+                    onClick={() => setSelectedAttachment(att)}
                     className="p-2 bg-white rounded-lg text-slate-900 hover:bg-slate-100 transition-colors shadow-lg"
-                    title="查看原圖"
+                    title="查看附件"
                   >
                     <FolderOpen className="w-4 h-4" />
                   </button>
@@ -1782,6 +1784,47 @@ export const ExperimentDetail = () => {
         onSave={handleSaveExperiment}
         initialData={experiment}
       />
+
+      {/* Attachment Modal */}
+      {selectedAttachment && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm" onClick={() => setSelectedAttachment(null)}>
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-slate-900 truncate pr-4">{selectedAttachment.name}</h3>
+              <button 
+                onClick={() => setSelectedAttachment(null)}
+                className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-slate-50/50">
+              {selectedAttachment.type.startsWith('image/') ? (
+                <img 
+                  src={selectedAttachment.url} 
+                  alt={selectedAttachment.name}
+                  className="max-w-full max-h-full object-contain"
+                />
+              ) : (
+                <div className="text-center">
+                  <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                  <p className="text-slate-600 mb-4">這是一個非圖片檔案</p>
+                  <a 
+                    href={selectedAttachment.url}
+                    download={selectedAttachment.name}
+                    className="px-6 py-2 bg-brand-600 text-white rounded-lg font-bold hover:bg-brand-700 transition-all inline-block"
+                  >
+                    下載檔案
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Test Item Selection Modal */}
       {isTestItemModalOpen && (
