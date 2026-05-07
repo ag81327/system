@@ -964,7 +964,7 @@ export const ExperimentDetail = () => {
             </div>
             <div>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">配方名稱</p>
-              <p className="text-sm font-medium text-slate-900">{'未設定'}</p>
+              <p className="text-sm font-medium text-slate-900">{experiment.formulationName || '未設定'}</p>
             </div>
           </div>
         </div>

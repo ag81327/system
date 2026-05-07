@@ -50,6 +50,7 @@ export const ExperimentModal = ({ isOpen, onClose, onSave, initialData }: Experi
     suggestions: '',
     notes: '',
     status: 'Draft',
+    formulationName: '',
   });
 
   useEffect(() => {
@@ -65,6 +66,7 @@ export const ExperimentModal = ({ isOpen, onClose, onSave, initialData }: Experi
         suggestions: initialData.suggestions,
         notes: initialData.notes || '',
         status: initialData.status,
+        formulationName: initialData.formulationName || '',
       });
     } else {
       setFormData({
@@ -78,6 +80,7 @@ export const ExperimentModal = ({ isOpen, onClose, onSave, initialData }: Experi
         suggestions: '',
         notes: '',
         status: 'Draft',
+        formulationName: '',
       });
     }
   }, [initialData, isOpen, accessibleProjects, user]);
@@ -133,7 +136,7 @@ export const ExperimentModal = ({ isOpen, onClose, onSave, initialData }: Experi
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">實驗日期</label>
                 <input
@@ -141,6 +144,16 @@ export const ExperimentModal = ({ isOpen, onClose, onSave, initialData }: Experi
                   type="date"
                   value={formData.date}
                   onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 outline-none transition-all"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">配方名稱</label>
+                <input
+                  type="text"
+                  value={formData.formulationName || ''}
+                  onChange={(e) => setFormData({ ...formData, formulationName: e.target.value })}
+                  placeholder="例如：標準配方 A"
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 outline-none transition-all"
                 />
               </div>

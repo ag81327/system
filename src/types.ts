@@ -66,6 +66,7 @@ export interface Experiment {
     signedAt: string;
   };
   formulation?: FormulationItem[];
+  formulationName?: string;
   processConditions?: ProcessCondition[];
   notes?: string;
   attachments?: string[]; // IDs of attachments
