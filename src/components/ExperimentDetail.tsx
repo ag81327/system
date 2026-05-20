@@ -778,9 +778,19 @@ export const ExperimentDetail = () => {
   };
 
   const handleDeleteAttachment = async (attId: string) => {
-    await deletePersistentAttachment(attId);
-    setAttachments(attachments.filter(a => a.id !== attId));
-    toast.success('檔案已刪除');
+    const attachment = attachments.find(a => a.id === attId);
+    const attachmentName = attachment ? `「${attachment.name}」` : '';
+    setPromptConfig({
+      isOpen: true,
+      title: '確認刪除附件',
+      message: `您確定要刪除附件 ${attachmentName} 嗎？`,
+      type: 'confirm',
+      onConfirm: async () => {
+        await deletePersistentAttachment(attId);
+        setAttachments(attachments.filter(a => a.id !== attId));
+        toast.success('檔案已刪除');
+      }
+    });
   };
 
   const handleUpdateSpecs = async (projectId: string, updatedSpecs: Record<string, { min?: number; max?: number; target?: number }>) => {
