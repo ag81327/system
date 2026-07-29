@@ -256,9 +256,9 @@ export const CorrelationAnalysis = ({ project, experiments, testItems, selectedE
                     autosize: true,
                     margin: { l: 0, r: 0, b: 0, t: 0 },
                     scene: {
-                      xaxis: { title: itemX?.name || 'X' },
-                      yaxis: { title: itemY?.name || 'Y' },
-                      zaxis: { title: itemZ?.name || 'Z' },
+                      xaxis: { title: { text: itemX?.name || 'X' } },
+                      yaxis: { title: { text: itemY?.name || 'Y' } },
+                      zaxis: { title: { text: itemZ?.name || 'Z' } },
                       camera: {
                         eye: { x: 1.5, y: 1.5, z: 1.5 }
                       }
