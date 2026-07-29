@@ -325,8 +325,13 @@ service cloud.firestore {
       
       match /samples/{sampleId} {
         allow list: if isApproved();
-        allow get: if isApproved() && isWithinAccessRange(get(/databases/$(database)/documents/experiments/$(experimentId)).data.date);
-        allow write: if isApproved() && isWithinAccessRange(get(/databases/$(database)/documents/experiments/$(experimentId)).data.date);
+        allow get: if isApproved();
+        allow write: if isApproved() && (
+          isAdmin() ||
+          !exists(/databases/$(database)/documents/experiments/$(experimentId)) ||
+          !('date' in get(/databases/$(database)/documents/experiments/$(experimentId)).data) ||
+          isWithinAccessRange(get(/databases/$(database)/documents/experiments/$(experimentId)).data.date)
+        );
       }
     }
 

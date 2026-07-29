@@ -590,24 +590,30 @@ export const ExperimentDetail = () => {
       await savePersistentTestItem(newItem);
       const updatedItems = [...testItems, newItem];
       setTestItems(updatedItems);
-      // Initialize results for existing samples
-      const updatedSamples = samples.map(s => ({
-        ...s,
-        results: [...(s.results || []), {
-          id: `res${Date.now()}${s.id}`,
-          sampleId: s.id,
-          testItemId: newItem.id,
-          rawValues: [],
-          mean: 0,
-          stdDev: 0,
-          max: 0,
-          min: 0,
-          status: 'Pending' as const,
-          isAnomaly: false
-        }]
-      }));
-      setSamples(updatedSamples);
-      await savePersistentSamples(id || 'e1', updatedSamples);
+
+      if (experiment) {
+        await savePersistentExperiment(experiment);
+      }
+
+      if (samples.length > 0) {
+        const updatedSamples = samples.map(s => ({
+          ...s,
+          results: [...(s.results || []), {
+            id: `res${Date.now()}${s.id}`,
+            sampleId: s.id,
+            testItemId: newItem.id,
+            rawValues: [],
+            mean: 0,
+            stdDev: 0,
+            max: 0,
+            min: 0,
+            status: 'Pending' as const,
+            isAnomaly: false
+          }]
+        }));
+        setSamples(updatedSamples);
+        await savePersistentSamples(id || 'e1', updatedSamples);
+      }
       toast.success(`已新增測試項目: ${name}`);
     } catch (error) {
       console.error('Failed to add test item:', error);
