@@ -73,22 +73,72 @@ export const deletePersistentSample = async (experimentId: string, id: string) =
   await firebaseService.deleteSample(experimentId, id);
 };
 
+// LocalStorage Fallback Utilities
+const getLocalArray = <T>(key: string): T[] => {
+  try {
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const saveLocalItem = <T extends { id: string }>(key: string, item: T) => {
+  try {
+    const list = getLocalArray<T>(key);
+    const updated = [...list.filter(i => i.id !== item.id), item];
+    localStorage.setItem(key, JSON.stringify(updated));
+  } catch (e) {
+    console.error('LocalStorage save error:', e);
+  }
+};
+
+const deleteLocalItem = (key: string, id: string) => {
+  try {
+    const list = getLocalArray<{ id: string }>(key);
+    const updated = list.filter(i => i.id !== id);
+    localStorage.setItem(key, JSON.stringify(updated));
+  } catch (e) {
+    console.error('LocalStorage delete error:', e);
+  }
+};
+
 export const getPersistentTestItems = async (): Promise<TestItem[]> => {
-  return firebaseService.getTestItems();
+  let cloudItems: TestItem[] = [];
+  try {
+    cloudItems = await firebaseService.getTestItems();
+  } catch (e) {
+    console.warn('Could not fetch testItems from Cloud Firestore:', e);
+  }
+  const localItems = getLocalArray<TestItem>('rd_testItems');
+  const map = new Map<string, TestItem>();
+  cloudItems.forEach(i => map.set(i.id, i));
+  localItems.forEach(i => map.set(i.id, i));
+  return Array.from(map.values());
+};
+
+export const savePersistentTestItem = async (item: TestItem) => {
+  saveLocalItem('rd_testItems', item);
+  try {
+    await firebaseService.saveTestItem(item);
+  } catch (e) {
+    console.warn('Could not save testItem to Cloud Firestore, saved locally:', e);
+  }
 };
 
 export const savePersistentTestItems = async (items: TestItem[]) => {
   for (const item of items) {
-    await firebaseService.saveTestItem(item);
+    await savePersistentTestItem(item);
   }
 };
 
-export const savePersistentTestItem = async (item: TestItem) => {
-  await firebaseService.saveTestItem(item);
-};
-
 export const deletePersistentTestItem = async (id: string) => {
-  await firebaseService.deleteTestItem(id);
+  deleteLocalItem('rd_testItems', id);
+  try {
+    await firebaseService.deleteTestItem(id);
+  } catch (e) {
+    console.warn('Could not delete testItem from Cloud Firestore:', e);
+  }
 };
 
 export const getPersistentProfiles = async (userId?: string): Promise<ProcessProfile[]> => {
@@ -169,39 +219,87 @@ export const deletePersistentCalendarEvent = async (id: string) => {
 
 // Master Data Persistence
 export const getPersistentMaterials = async (): Promise<MaterialMaster[]> => {
-  return firebaseService.getMaterials();
+  let cloud: MaterialMaster[] = [];
+  try { cloud = await firebaseService.getMaterials(); } catch (e) { console.warn(e); }
+  const local = getLocalArray<MaterialMaster>('rd_materials');
+  const map = new Map<string, MaterialMaster>();
+  cloud.forEach(i => map.set(i.id, i));
+  local.forEach(i => map.set(i.id, i));
+  return Array.from(map.values());
 };
 
 export const savePersistentMaterial = async (material: MaterialMaster) => {
-  await firebaseService.saveMaterial(material);
+  saveLocalItem('rd_materials', material);
+  try {
+    await firebaseService.saveMaterial(material);
+  } catch (e) {
+    console.warn('Could not save material to Cloud Firestore, saved locally:', e);
+  }
 };
 
 export const deletePersistentMaterial = async (id: string) => {
-  await firebaseService.deleteMaterial(id);
+  deleteLocalItem('rd_materials', id);
+  try {
+    await firebaseService.deleteMaterial(id);
+  } catch (e) {
+    console.warn('Could not delete material from Cloud Firestore:', e);
+  }
 };
 
 export const getPersistentProcessParameters = async (): Promise<ProcessParameterMaster[]> => {
-  return firebaseService.getProcessParameters();
+  let cloud: ProcessParameterMaster[] = [];
+  try { cloud = await firebaseService.getProcessParameters(); } catch (e) { console.warn(e); }
+  const local = getLocalArray<ProcessParameterMaster>('rd_processParameters');
+  const map = new Map<string, ProcessParameterMaster>();
+  cloud.forEach(i => map.set(i.id, i));
+  local.forEach(i => map.set(i.id, i));
+  return Array.from(map.values());
 };
 
 export const savePersistentProcessParameter = async (param: ProcessParameterMaster) => {
-  await firebaseService.saveProcessParameter(param);
+  saveLocalItem('rd_processParameters', param);
+  try {
+    await firebaseService.saveProcessParameter(param);
+  } catch (e) {
+    console.warn('Could not save processParameter to Cloud Firestore, saved locally:', e);
+  }
 };
 
 export const deletePersistentProcessParameter = async (id: string) => {
-  await firebaseService.deleteProcessParameter(id);
+  deleteLocalItem('rd_processParameters', id);
+  try {
+    await firebaseService.deleteProcessParameter(id);
+  } catch (e) {
+    console.warn('Could not delete processParameter from Cloud Firestore:', e);
+  }
 };
 
 export const getPersistentDefectMasters = async (): Promise<DefectMaster[]> => {
-  return firebaseService.getDefectMasters();
+  let cloud: DefectMaster[] = [];
+  try { cloud = await firebaseService.getDefectMasters(); } catch (e) { console.warn(e); }
+  const local = getLocalArray<DefectMaster>('rd_defectMasters');
+  const map = new Map<string, DefectMaster>();
+  cloud.forEach(i => map.set(i.id, i));
+  local.forEach(i => map.set(i.id, i));
+  return Array.from(map.values());
 };
 
 export const savePersistentDefectMaster = async (defect: DefectMaster) => {
-  await firebaseService.saveDefectMaster(defect);
+  saveLocalItem('rd_defectMasters', defect);
+  try {
+    await firebaseService.saveDefectMaster(defect);
+  } catch (e) {
+    console.warn('Could not save defectMaster to Cloud Firestore, saved locally:', e);
+  }
 };
 
 export const deletePersistentDefectMaster = async (id: string) => {
-  await firebaseService.deleteDefectMaster(id);
+  deleteLocalItem('rd_defectMasters', id);
+  try {
+    await firebaseService.deleteDefectMaster(id);
+  } catch (e) {
+    console.warn('Could not delete defectMaster from Cloud Firestore:', e);
+  }
 };
 
 // R&D Persistence
