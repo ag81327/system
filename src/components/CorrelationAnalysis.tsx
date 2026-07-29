@@ -249,7 +249,7 @@ export const CorrelationAnalysis = ({ project, experiments, testItems, selectedE
                         opacity: 0.8
                       },
                       text: correlationData.map(d => d.batch),
-                      hoverinfo: 'text+x+y+z'
+                      hoverinfo: 'text+x+y+z' as any
                     }
                   ]}
                   layout={{
