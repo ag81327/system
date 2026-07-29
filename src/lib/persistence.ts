@@ -83,6 +83,10 @@ export const savePersistentTestItems = async (items: TestItem[]) => {
   }
 };
 
+export const savePersistentTestItem = async (item: TestItem) => {
+  await firebaseService.saveTestItem(item);
+};
+
 export const deletePersistentTestItem = async (id: string) => {
   await firebaseService.deleteTestItem(id);
 };

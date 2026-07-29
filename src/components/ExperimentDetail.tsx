@@ -35,7 +35,8 @@ import { TestItem, Experiment, Project, FormulationItem, ProcessCondition, Proce
 import { 
   getPersistentProjects, 
   getPersistentTestItems, 
-  savePersistentTestItems, 
+  savePersistentTestItems,
+  savePersistentTestItem, 
   deletePersistentTestItem,
   getPersistentProfiles, 
   savePersistentProfiles,
@@ -580,33 +581,38 @@ export const ExperimentDetail = () => {
   };
 
   const performAddTestItem = async (name: string, unit: string) => {
-    const newItem: TestItem = {
-      id: `ti${Date.now()}`,
-      name,
-      unit: unit || ''
-    };
-    const updatedItems = [...testItems, newItem];
-    setTestItems(updatedItems);
-    await savePersistentTestItems(updatedItems);
-    // Initialize results for existing samples
-    const updatedSamples = samples.map(s => ({
-      ...s,
-      results: [...(s.results || []), {
-        id: `res${Date.now()}${s.id}`,
-        sampleId: s.id,
-        testItemId: newItem.id,
-        rawValues: [],
-        mean: 0,
-        stdDev: 0,
-        max: 0,
-        min: 0,
-        status: 'Pending' as const,
-        isAnomaly: false
-      }]
-    }));
-    setSamples(updatedSamples);
-    await savePersistentSamples(id || 'e1', updatedSamples);
-    toast.success(`已新增測試項目: ${name}`);
+    try {
+      const newItem: TestItem = {
+        id: `ti${Date.now()}`,
+        name,
+        unit: unit || ''
+      };
+      await savePersistentTestItem(newItem);
+      const updatedItems = [...testItems, newItem];
+      setTestItems(updatedItems);
+      // Initialize results for existing samples
+      const updatedSamples = samples.map(s => ({
+        ...s,
+        results: [...(s.results || []), {
+          id: `res${Date.now()}${s.id}`,
+          sampleId: s.id,
+          testItemId: newItem.id,
+          rawValues: [],
+          mean: 0,
+          stdDev: 0,
+          max: 0,
+          min: 0,
+          status: 'Pending' as const,
+          isAnomaly: false
+        }]
+      }));
+      setSamples(updatedSamples);
+      await savePersistentSamples(id || 'e1', updatedSamples);
+      toast.success(`已新增測試項目: ${name}`);
+    } catch (error) {
+      console.error('Failed to add test item:', error);
+      toast.error('新增測試項目失敗');
+    }
   };
 
   const performAddTestItemFromMaster = async (item: TestItem) => {

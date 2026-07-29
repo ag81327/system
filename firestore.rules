@@ -225,7 +225,10 @@ service cloud.firestore {
              data.unit is string && data.unit.size() < 50 &&
              (!('defaultValue' in data) || data.defaultValue is number || data.defaultValue is string) &&
              (!('min' in data) || data.min is number || data.min == null) &&
-             (!('max' in data) || data.max is number || data.max == null);
+             (!('max' in data) || data.max is number || data.max == null) &&
+             (!('specMin' in data) || data.specMin is number || data.specMin == null) &&
+             (!('specMax' in data) || data.specMax is number || data.specMax == null) &&
+             (!('targetValue' in data) || data.targetValue is number || data.targetValue == null);
     }
 
     function isValidMaterial(data) {
@@ -329,8 +332,8 @@ service cloud.firestore {
 
     match /testItems/{testItemId} {
       allow read: if isApproved();
-      allow create, update: if isAdmin() && isValidTestItem(request.resource.data);
-      allow delete: if isAdmin();
+      allow create, update: if isApproved() && isValidTestItem(request.resource.data);
+      allow delete: if isApproved();
     }
 
     match /materials/{materialId} {

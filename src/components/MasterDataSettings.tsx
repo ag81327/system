@@ -27,7 +27,8 @@ import {
 } from '../types';
 import { 
   getPersistentTestItems, 
-  savePersistentTestItems, 
+  savePersistentTestItems,
+  savePersistentTestItem, 
   deletePersistentTestItem,
   getPersistentMaterials,
   savePersistentMaterial,
@@ -242,7 +243,7 @@ export const MasterDataSettings = () => {
               } else if (activeTab === 'defects') {
                 await savePersistentDefectMaster({ ...data, id: editingId || `def${Date.now()}` });
               } else if (activeTab === 'test-items') {
-                await savePersistentTestItems([{ ...data, id: editingId || `ti${Date.now()}` }]);
+                await savePersistentTestItem({ ...data, id: editingId || `ti${Date.now()}` });
               }
               fetchData();
               setIsModalOpen(false);
