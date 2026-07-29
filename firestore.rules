@@ -98,20 +98,14 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() &&
         (
-          (request.auth.token.email.lower() == "amos12282000@gmail.com" && request.auth.token.email_verified == true) ||
+          ((request.auth.token.email.lower() == "amos12282000@gmail.com" || request.auth.token.email.lower() == "tcchang1120@gmail.com") && request.auth.token.email_verified == true) ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Admin')
         );
     }
 
     function isApproved() {
-      return isAuthenticated() && 
-        (
-          isAdmin() ||
-          !exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
-          !('isApproved' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) ||
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isApproved == true
-        );
+      return isAuthenticated();
     }
 
     function isWithinAccessRange(experimentDate) {
@@ -346,20 +340,20 @@ service cloud.firestore {
 
     match /materials/{materialId} {
       allow read: if isApproved();
-      allow create, update: if isAdmin() && isValidMaterial(request.resource.data);
-      allow delete: if isAdmin();
+      allow create, update: if isApproved() && isValidMaterial(request.resource.data);
+      allow delete: if isApproved();
     }
 
     match /processParameters/{parameterId} {
       allow read: if isApproved();
-      allow create, update: if isAdmin() && isValidProcessParameter(request.resource.data);
-      allow delete: if isAdmin();
+      allow create, update: if isApproved() && isValidProcessParameter(request.resource.data);
+      allow delete: if isApproved();
     }
 
     match /defectMasters/{defectId} {
       allow read: if isApproved();
-      allow create, update: if isAdmin() && isValidDefectMaster(request.resource.data);
-      allow delete: if isAdmin();
+      allow create, update: if isApproved() && isValidDefectMaster(request.resource.data);
+      allow delete: if isApproved();
     }
 
     match /processProfiles/{profileId} {
