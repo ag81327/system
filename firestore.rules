@@ -108,17 +108,20 @@ service cloud.firestore {
       return isAuthenticated() && 
         (
           isAdmin() ||
-          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isApproved == true)
+          !exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+          !('isApproved' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isApproved == true
         );
     }
 
     function isWithinAccessRange(experimentDate) {
-      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-      return isAdmin() || (
-        (!('accessStartDate' in userData) || userData.accessStartDate == null || userData.accessStartDate == "" || experimentDate >= userData.accessStartDate) &&
-        (!('accessEndDate' in userData) || userData.accessEndDate == null || userData.accessEndDate == "" || experimentDate <= userData.accessEndDate)
-      );
+      return isAdmin() || 
+        !exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+        (
+          let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+          (!('accessStartDate' in userData) || userData.accessStartDate == null || userData.accessStartDate == "" || experimentDate == null || experimentDate >= userData.accessStartDate) &&
+          (!('accessEndDate' in userData) || userData.accessEndDate == null || userData.accessEndDate == "" || experimentDate == null || experimentDate <= userData.accessEndDate)
+        );
     }
 
     function hasRequiredFields(fields) {

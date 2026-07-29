@@ -587,14 +587,22 @@ export const ExperimentDetail = () => {
         name,
         unit: unit || ''
       };
+      
+      // 1. Primary action: Save test item to master collection
       await savePersistentTestItem(newItem);
       const updatedItems = [...testItems, newItem];
       setTestItems(updatedItems);
 
+      // 2. Secondary action: Persist current experiment if active
       if (experiment) {
-        await savePersistentExperiment(experiment);
+        try {
+          await savePersistentExperiment(experiment);
+        } catch (expErr) {
+          console.warn('Experiment background save warning:', expErr);
+        }
       }
 
+      // 3. Secondary action: Initialize results for existing samples
       if (samples.length > 0) {
         const updatedSamples = samples.map(s => ({
           ...s,
@@ -612,12 +620,16 @@ export const ExperimentDetail = () => {
           }]
         }));
         setSamples(updatedSamples);
-        await savePersistentSamples(id || 'e1', updatedSamples);
+        try {
+          await savePersistentSamples(id || 'e1', updatedSamples);
+        } catch (sampErr) {
+          console.warn('Sample background save warning:', sampErr);
+        }
       }
       toast.success(`已新增測試項目: ${name}`);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to add test item:', error);
-      toast.error('新增測試項目失敗');
+      toast.error(`新增測試項目失敗: ${error?.message || '資料庫寫入異常'}`);
     }
   };
 
