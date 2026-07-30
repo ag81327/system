@@ -68,7 +68,7 @@ export const saveDocument = async <T extends { id?: string }>(path: string, data
 
     await setDoc(docRef, { ...cleanData, id }, { merge: true });
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    console.warn(`Firestore write warning [${path}]:`, error);
   }
 };
 
@@ -77,7 +77,7 @@ export const removeDocument = async (path: string, id: string): Promise<void> =>
     const docRef = doc(db, path, id);
     await deleteDoc(docRef);
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, `${path}/${id}`);
+    console.warn(`Firestore delete warning [${path}/${id}]:`, error);
   }
 };
 
