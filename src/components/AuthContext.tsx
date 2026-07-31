@@ -128,21 +128,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const notificationsRef = collection(db, 'notifications');
       const q = query(
         notificationsRef, 
-        where('userId', '==', user.id),
-        orderBy('createdAt', 'desc'),
-        limit(20)
+        where('userId', '==', user.id)
       );
       
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppNotification));
+      const unsubscribeNotifs = onSnapshot(q, (snapshot) => {
+        const notifs = snapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as AppNotification))
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 30);
         setNotifications(notifs);
       }, (error) => {
         console.error('Notification snapshot error:', error);
-        // Silently handle notification errors to avoid disrupting user experience
-        // but log for debugging
       });
 
-      return () => unsubscribe();
+      // If user is Admin, also listen for pending (unapproved) users in real-time to generate notification alerts
+      let unsubscribeUsers: (() => void) | null = null;
+      if (user.role === 'Admin') {
+        const usersRef = collection(db, 'users');
+        const pendingQuery = query(usersRef, where('isApproved', '==', false));
+        unsubscribeUsers = onSnapshot(pendingQuery, (snapshot) => {
+          snapshot.docs.forEach((docSnap) => {
+            const pendingUser = docSnap.data() as User;
+            const notifMsg = `用戶 ${pendingUser.name} (${pendingUser.email}) 正在等待帳號審核。`;
+            // Trigger notifyAdmins if not already notified in current list
+            import('../services/notificationService').then(({ notifyAdmins }) => {
+              notifyAdmins('新帳號申請', notifMsg, '/users');
+            }).catch(err => console.error('Failed to notify admins of pending user:', err));
+          });
+        }, (error) => {
+          console.warn('Pending users snapshot error:', error);
+        });
+      }
+
+      return () => {
+        unsubscribeNotifs();
+        if (unsubscribeUsers) unsubscribeUsers();
+      };
     } else {
       setNotifications([]);
     }

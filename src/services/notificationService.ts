@@ -18,18 +18,36 @@ export const createNotification = async (notification: Omit<AppNotification, 'id
 export const notifyAdmins = async (title: string, message: string, link?: string) => {
   try {
     const usersRef = collection(db, 'users');
-    const q = query(usersRef, where('role', '==', 'Admin'));
-    const querySnapshot = await getDocs(q);
+    const querySnapshot = await getDocs(usersRef);
     
-    const promises = querySnapshot.docs.map(userDoc => 
-      createNotification({
-        userId: userDoc.id,
-        title,
-        message,
-        type: 'alert',
-        link
-      })
-    );
+    const adminDocs = querySnapshot.docs.filter(userDoc => {
+      const data = userDoc.data();
+      const email = (data.email || '').toLowerCase();
+      return data.role === 'Admin' || email === 'amos12282000@gmail.com' || email === 'tcchang1120@gmail.com';
+    });
+
+    const adminUserIds = Array.from(new Set(adminDocs.map(doc => doc.id)));
+    const notifsRef = collection(db, 'notifications');
+    
+    const promises = adminUserIds.map(async (adminId) => {
+      // Check for existing unread notification with exact same message
+      const existingQuery = query(
+        notifsRef,
+        where('userId', '==', adminId),
+        where('message', '==', message),
+        where('read', '==', false)
+      );
+      const existingSnap = await getDocs(existingQuery);
+      if (existingSnap.empty) {
+        await createNotification({
+          userId: adminId,
+          title,
+          message,
+          type: 'alert',
+          link
+        });
+      }
+    });
     
     await Promise.all(promises);
   } catch (error) {

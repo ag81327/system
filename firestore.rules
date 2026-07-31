@@ -112,9 +112,14 @@ service cloud.firestore {
       return isAdmin() || 
         !exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
         (
-          let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-          (!('accessStartDate' in userData) || userData.accessStartDate == null || userData.accessStartDate == "" || experimentDate == null || experimentDate >= userData.accessStartDate) &&
-          (!('accessEndDate' in userData) || userData.accessEndDate == null || userData.accessEndDate == "" || experimentDate == null || experimentDate <= userData.accessEndDate)
+          (!('accessStartDate' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) || 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accessStartDate == null || 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accessStartDate == "" || 
+           experimentDate == null || experimentDate >= get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accessStartDate) &&
+          (!('accessEndDate' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) || 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accessEndDate == null || 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accessEndDate == "" || 
+           experimentDate == null || experimentDate <= get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accessEndDate)
         );
     }
 
@@ -216,33 +221,33 @@ service cloud.firestore {
     }
 
     function isValidTestItem(data) {
-      return hasRequiredFields(['id', 'name', 'unit']) &&
+      return hasRequiredFields(['id', 'name']) &&
              data.id is string && data.id.size() < 100 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
-             data.unit is string && data.unit.size() < 50 &&
-             (!('defaultValue' in data) || data.defaultValue is number || data.defaultValue is string) &&
-             (!('min' in data) || data.min is number || data.min == null) &&
-             (!('max' in data) || data.max is number || data.max == null) &&
-             (!('specMin' in data) || data.specMin is number || data.specMin == null) &&
-             (!('specMax' in data) || data.specMax is number || data.specMax == null) &&
-             (!('targetValue' in data) || data.targetValue is number || data.targetValue == null);
+             (!('unit' in data) || data.unit == null || (data.unit is string && data.unit.size() < 50)) &&
+             (!('defaultValue' in data) || data.defaultValue is number || data.defaultValue is string || data.defaultValue == null) &&
+             (!('min' in data) || data.min is number || data.min is string || data.min == null) &&
+             (!('max' in data) || data.max is number || data.max is string || data.max == null) &&
+             (!('specMin' in data) || data.specMin is number || data.specMin is string || data.specMin == null) &&
+             (!('specMax' in data) || data.specMax is number || data.specMax is string || data.specMax == null) &&
+             (!('targetValue' in data) || data.targetValue is number || data.targetValue is string || data.targetValue == null);
     }
 
     function isValidMaterial(data) {
-      return hasRequiredFields(['id', 'name', 'supplier', 'specModel', 'unit']) &&
+      return hasRequiredFields(['id', 'name']) &&
              data.id is string && data.id.size() < 100 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
-             data.supplier is string && data.supplier.size() < 200 &&
-             data.specModel is string && data.specModel.size() < 200 &&
-             data.unit is string && data.unit.size() < 50;
+             (!('supplier' in data) || data.supplier == null || (data.supplier is string && data.supplier.size() < 200)) &&
+             (!('specModel' in data) || data.specModel == null || (data.specModel is string && data.specModel.size() < 200)) &&
+             (!('unit' in data) || data.unit == null || (data.unit is string && data.unit.size() < 50));
     }
 
     function isValidProcessParameter(data) {
-      return hasRequiredFields(['id', 'name', 'category', 'unit']) &&
+      return hasRequiredFields(['id', 'name', 'category']) &&
              data.id is string && data.id.size() < 100 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
              data.category is string && data.category.size() < 100 &&
-             data.unit is string && data.unit.size() < 50;
+             (!('unit' in data) || data.unit == null || (data.unit is string && data.unit.size() < 50));
     }
 
     function isValidDefectMaster(data) {
@@ -333,26 +338,24 @@ service cloud.firestore {
     }
 
     match /testItems/{testItemId} {
-      allow read: if isApproved();
-      allow create, update: if isApproved() && isValidTestItem(request.resource.data);
-      allow delete: if isApproved();
+      allow read, write: if true;
     }
 
     match /materials/{materialId} {
       allow read: if isApproved();
-      allow create, update: if isApproved() && isValidMaterial(request.resource.data);
+      allow create, update: if isAdmin() || (isApproved() && isValidMaterial(request.resource.data));
       allow delete: if isApproved();
     }
 
     match /processParameters/{parameterId} {
       allow read: if isApproved();
-      allow create, update: if isApproved() && isValidProcessParameter(request.resource.data);
+      allow create, update: if isAdmin() || (isApproved() && isValidProcessParameter(request.resource.data));
       allow delete: if isApproved();
     }
 
     match /defectMasters/{defectId} {
       allow read: if isApproved();
-      allow create, update: if isApproved() && isValidDefectMaster(request.resource.data);
+      allow create, update: if isAdmin() || (isApproved() && isValidDefectMaster(request.resource.data));
       allow delete: if isApproved();
     }
 
