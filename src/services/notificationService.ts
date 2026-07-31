@@ -26,11 +26,17 @@ export const notifyAdmins = async (title: string, message: string, link?: string
       return data.role === 'Admin' || email === 'amos12282000@gmail.com' || email === 'tcchang1120@gmail.com';
     });
 
-    const adminUserIds = Array.from(new Set(adminDocs.map(doc => doc.id)));
+    const adminUserIds = new Set<string>();
+    adminDocs.forEach(userDoc => {
+      adminUserIds.add(userDoc.id);
+      if (userDoc.data()?.id) {
+        adminUserIds.add(userDoc.data().id);
+      }
+    });
+
     const notifsRef = collection(db, 'notifications');
     
-    const promises = adminUserIds.map(async (adminId) => {
-      // Check for existing unread notification with exact same message
+    const promises = Array.from(adminUserIds).map(async (adminId) => {
       const existingQuery = query(
         notifsRef,
         where('userId', '==', adminId),

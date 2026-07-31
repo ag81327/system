@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, UserPermission, AppNotification } from '../types';
 import { auth, db } from '../firebase';
+import { toast } from 'sonner';
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
@@ -54,7 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         userUnsubscribe = onSnapshot(userDocRef, async (userDoc) => {
           if (userDoc.exists()) {
-            let userData = userDoc.data() as User;
+            let userData = { ...userDoc.data(), id: firebaseUser.uid } as User;
             
             // Auto-approve bootstrap admin if needed
             const isBootstrapAdmin = firebaseUser.email?.toLowerCase() === 'amos12282000@gmail.com';
@@ -125,10 +126,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Separate effect for notifications to handle approval status changes
   useEffect(() => {
     if (user && (user.isApproved || user.role === 'Admin')) {
+      const targetIds = Array.from(new Set([user.id, auth.currentUser?.uid].filter(Boolean))) as string[];
       const notificationsRef = collection(db, 'notifications');
       const q = query(
         notificationsRef, 
-        where('userId', '==', user.id)
+        where('userId', 'in', targetIds)
       );
       
       const unsubscribeNotifs = onSnapshot(q, (snapshot) => {
@@ -136,6 +138,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .map(doc => ({ id: doc.id, ...doc.data() } as AppNotification))
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, 30);
+        
+        // Trigger real-time popup toast for new unread notifications
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const notif = change.doc.data() as AppNotification;
+            if (!notif.read) {
+              toast.info(`【${notif.title}】${notif.message}`, {
+                duration: 6000,
+                description: '請至「通知中心」或點擊選單前往處理'
+              });
+            }
+          }
+        });
+
         setNotifications(notifs);
       }, (error) => {
         console.error('Notification snapshot error:', error);
