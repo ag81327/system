@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, UserPermission, AppNotification } from '../types';
 import { auth, db } from '../firebase';
-import { toast } from 'sonner';
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
@@ -139,19 +138,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, 30);
         
-        // Trigger real-time popup toast for new unread notifications
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === 'added') {
-            const notif = change.doc.data() as AppNotification;
-            if (!notif.read) {
-              toast.info(`【${notif.title}】${notif.message}`, {
-                duration: 6000,
-                description: '請至「通知中心」或點擊選單前往處理'
-              });
-            }
-          }
-        });
-
         setNotifications(notifs);
       }, (error) => {
         console.error('Notification snapshot error:', error);
