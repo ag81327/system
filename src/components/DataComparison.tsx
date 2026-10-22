@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useComparison } from './ComparisonContext';
-import { Experiment, Sample, TestResult, TestItem, DefectMaster } from '../types';
-import { getPersistentSamples, getPersistentTestItems, getPersistentDefectMasters } from '../lib/persistence';
+import { Experiment, Sample, TestResult, TestItem, DefectMaster, Project } from '../types';
+import { getPersistentSamples, getPersistentTestItems, getPersistentDefectMasters, getPersistentProjects } from '../lib/persistence';
 import * as XLSX from 'xlsx';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
@@ -29,6 +29,7 @@ export const DataComparison: React.FC = () => {
   const { selectedExperiments, removeFromComparison, clearComparison } = useComparison();
   const [samples, setSamples] = useState<Record<string, Sample[]>>({});
   const [testItems, setTestItems] = useState<TestItem[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [viewMode, setViewMode] = useState<'table' | 'charts'>('table');
   const [hideIdentical, setHideIdentical] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,9 +39,10 @@ export const DataComparison: React.FC = () => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        const [allTestItems, allDefectMasters] = await Promise.all([
+        const [allTestItems, allDefectMasters, allProjects] = await Promise.all([
           getPersistentTestItems(),
-          getPersistentDefectMasters()
+          getPersistentDefectMasters(),
+          getPersistentProjects()
         ]);
 
         const experimentSamples: Record<string, Sample[]> = {};
@@ -52,6 +54,7 @@ export const DataComparison: React.FC = () => {
         setSamples(experimentSamples);
         setTestItems(allTestItems);
         setDefectMasters(allDefectMasters);
+        setProjects(allProjects);
       } catch (error) {
         console.error('Failed to fetch comparison data', error);
         toast.error('讀取比對數據失敗');
@@ -411,11 +414,6 @@ export const DataComparison: React.FC = () => {
                     </tr>
                     {Array.from(new Set(testItems.map(ti => ti.name))).map(itemName => {
                       const item = testItems.find(ti => ti.name === itemName);
-                      const values = comparisonColumns.map(col => {
-                        if (!col.sample) return null;
-                        const relevantItemIds = testItems.filter(ti => ti.name === itemName).map(ti => ti.id);
-                        return col.sample.results?.find(r => relevantItemIds.includes(r.testItemId)) || null;
-                      });
                       
                       return (
                         <tr key={itemName}>
@@ -423,18 +421,94 @@ export const DataComparison: React.FC = () => {
                             {itemName}
                             <span className="ml-1 text-[10px] text-slate-400">({item?.unit})</span>
                           </td>
-                          {values.map((res, idx) => (
-                            <td key={idx} className="p-4 text-sm text-slate-700">
-                              {res ? (
+                          {comparisonColumns.map((col, idx) => {
+                            if (!col.sample) {
+                              return (
+                                <td key={idx} className="p-4 text-sm text-slate-700 bg-white">
+                                  <span className="text-slate-300 italic text-xs">無樣品</span>
+                                </td>
+                              );
+                            }
+
+                            const relevantItemIds = testItems.filter(ti => ti.name === itemName).map(ti => ti.id);
+                            const res = col.sample.results?.find(r => relevantItemIds.includes(r.testItemId)) || null;
+
+                            if (!res) {
+                              return (
+                                <td key={idx} className="p-4 text-sm text-slate-700 bg-white">
+                                  <span className="text-slate-300 italic text-xs">無數據</span>
+                                </td>
+                              );
+                            }
+
+                            const resItem = testItems.find(ti => ti.id === res.testItemId) || item;
+                            const sampleSpec = col.sample.specs?.[res.testItemId];
+                            const project = projects.find(p => p.id === col.experiment.projectId);
+                            const projectSpec = project?.specs?.[res.testItemId];
+
+                            const lsl = sampleSpec?.min !== undefined ? sampleSpec.min : (projectSpec?.min !== undefined ? projectSpec.min : resItem?.specMin);
+                            const usl = sampleSpec?.max !== undefined ? sampleSpec.max : (projectSpec?.max !== undefined ? projectSpec.max : resItem?.specMax);
+
+                            const hasMin = lsl !== undefined && lsl !== null && !isNaN(Number(lsl));
+                            const hasMax = usl !== undefined && usl !== null && !isNaN(Number(usl));
+                            const hasSpec = hasMin || hasMax;
+
+                            const hasData = res.mean !== undefined && !isNaN(res.mean) && (res.rawValues ? res.rawValues.length > 0 : true);
+
+                            let isPass = false;
+                            let isFail = false;
+
+                            if (hasData) {
+                              if (hasSpec) {
+                                isPass = (!hasMin || res.mean >= Number(lsl)) && (!hasMax || res.mean <= Number(usl));
+                                isFail = !isPass;
+                              } else if (res.status === 'Fail' || res.isAnomaly) {
+                                isFail = true;
+                              }
+                            }
+
+                            const cellBg = !hasData
+                              ? "bg-white"
+                              : isFail
+                                ? "bg-rose-50 text-rose-900"
+                                : isPass
+                                  ? "bg-emerald-50 text-emerald-900"
+                                  : "bg-white text-slate-800";
+
+                            const cellTitle = !hasData
+                              ? '無數據'
+                              : isFail
+                                ? '不合格 (超出規格)'
+                                : isPass
+                                  ? '合格'
+                                  : '未設定規格限制';
+
+                            return (
+                              <td 
+                                key={idx} 
+                                className={cn(
+                                  "p-4 text-sm transition-colors",
+                                  cellBg
+                                )}
+                                title={cellTitle}
+                              >
                                 <div>
-                                  <p className="font-bold text-slate-900">{res.mean.toFixed(2)}</p>
-                                  <p className="text-[10px] text-slate-400">SD: {res.stdDev.toFixed(2)}</p>
+                                  <p className={cn(
+                                    "font-bold font-mono",
+                                    isFail ? "text-rose-900" : isPass ? "text-emerald-900" : "text-slate-900"
+                                  )}>
+                                    {res.mean.toFixed(2)}
+                                  </p>
+                                  <p className={cn(
+                                    "text-[10px] font-mono",
+                                    isFail ? "text-rose-600/80" : isPass ? "text-emerald-600/80" : "text-slate-400"
+                                  )}>
+                                    SD: {res.stdDev.toFixed(2)}
+                                  </p>
                                 </div>
-                              ) : (
-                                <span className="text-slate-300 italic text-xs">無數據</span>
-                              )}
-                            </td>
-                          ))}
+                              </td>
+                            );
+                          })}
                         </tr>
                       );
                     })}
