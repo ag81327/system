@@ -194,9 +194,26 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
     const variance = values.reduce((a, b) => a + Math.pow(b - overallMean, 2), 0) / (values.length - 1 || 1);
     const stdDev = Math.sqrt(variance);
 
-    // Control Limits (Simplified 3-sigma)
-    let UCL = overallMean + 3 * stdDev;
-    let LCL = overallMean - 3 * stdDev;
+    // Get configured specs from project or test item
+    const relevantItemIds = testItems.filter(ti => ti.name === selectedItem.name).map(ti => ti.id);
+    let configuredSpec = project?.specs?.[selectedTestItemId];
+    if (!configuredSpec) {
+      for (const id of relevantItemIds) {
+        if (project?.specs?.[id]) {
+          configuredSpec = project.specs[id];
+          break;
+        }
+      }
+    }
+
+    const configuredMax = configuredSpec?.max !== undefined ? configuredSpec.max : selectedItem.specMax;
+    const configuredMin = configuredSpec?.min !== undefined ? configuredSpec.min : selectedItem.specMin;
+    const configuredTarget = configuredSpec?.target !== undefined ? configuredSpec.target : selectedItem.targetValue;
+
+    // Control Limits (Xbar Control Chart: prioritize configured spec values, fallback to 3-sigma if not configured)
+    let UCL = configuredMax !== undefined ? configuredMax : overallMean + 3 * stdDev;
+    let LCL = configuredMin !== undefined ? configuredMin : overallMean - 3 * stdDev;
+    let CL = configuredTarget !== undefined ? configuredTarget : overallMean;
 
     // EWMA / CUSUM specific logic
     let ewmaValue = overallMean;
@@ -221,7 +238,7 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
         displayValue: parseFloat(currentVal.toFixed(3)),
         ewma: parseFloat(ewmaValue.toFixed(3)),
         cusum: parseFloat(cusumValue.toFixed(3)),
-        CL: parseFloat(overallMean.toFixed(3)),
+        CL: parseFloat(CL.toFixed(3)),
         UCL: parseFloat(UCL.toFixed(3)),
         LCL: parseFloat(LCL.toFixed(3)),
         range: [parseFloat(LCL.toFixed(3)), parseFloat(UCL.toFixed(3))],
@@ -229,7 +246,7 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
         violations: pointViolations.map(v => v.rule)
       };
     });
-  }, [project?.id, experiments, selectedTestItemId, chartType, selectedExperimentId, timeRange, allSamplesMap]);
+  }, [project?.id, project?.specs, testItems, experiments, selectedTestItemId, chartType, selectedExperimentId, timeRange, allSamplesMap]);
 
   const stats = useMemo(() => {
     if (spcData.length === 0) return null;
@@ -237,11 +254,23 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
     const basicStats = calculateStats(values);
     
     // Cp/Cpk calculation
-    const spec = project?.specs?.[selectedTestItemId];
-    const capability = calculateCapability(basicStats, spec?.min, spec?.max);
+    const selectedItem = testItems.find(t => t.id === selectedTestItemId);
+    const relevantItemIds = selectedItem ? testItems.filter(ti => ti.name === selectedItem.name).map(ti => ti.id) : [selectedTestItemId];
+    let configuredSpec = project?.specs?.[selectedTestItemId];
+    if (!configuredSpec) {
+      for (const id of relevantItemIds) {
+        if (project?.specs?.[id]) {
+          configuredSpec = project.specs[id];
+          break;
+        }
+      }
+    }
+    const min = configuredSpec?.min !== undefined ? configuredSpec.min : selectedItem?.specMin;
+    const max = configuredSpec?.max !== undefined ? configuredSpec.max : selectedItem?.specMax;
+    const capability = calculateCapability(basicStats, min, max);
 
     return { ...basicStats, ...capability };
-  }, [spcData, project?.specs, selectedTestItemId]);
+  }, [spcData, project?.specs, selectedTestItemId, testItems]);
 
   const histogramData = useMemo(() => {
     if (spcData.length === 0) return [];
@@ -255,14 +284,53 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
     let min = Math.min(...values);
     let max = Math.max(...values);
     
-    const spec = project?.specs?.[selectedTestItemId];
-    if (spec?.min !== undefined) min = Math.min(min, spec.min);
-    if (spec?.max !== undefined) max = Math.max(max, spec.max);
+    const selectedItem = testItems.find(t => t.id === selectedTestItemId);
+    const relevantItemIds = selectedItem ? testItems.filter(ti => ti.name === selectedItem.name).map(ti => ti.id) : [selectedTestItemId];
+    let configuredSpec = project?.specs?.[selectedTestItemId];
+    if (!configuredSpec) {
+      for (const id of relevantItemIds) {
+        if (project?.specs?.[id]) {
+          configuredSpec = project.specs[id];
+          break;
+        }
+      }
+    }
+    const specMin = configuredSpec?.min !== undefined ? configuredSpec.min : selectedItem?.specMin;
+    const specMax = configuredSpec?.max !== undefined ? configuredSpec.max : selectedItem?.specMax;
+    if (specMin !== undefined) min = Math.min(min, specMin);
+    if (specMax !== undefined) max = Math.max(max, specMax);
     
     const range = max - min;
     const padding = range === 0 ? 1 : range * 0.15;
     return [min - padding, max + padding];
-  }, [spcData, project?.specs, selectedTestItemId]);
+  }, [spcData, project?.specs, selectedTestItemId, testItems]);
+
+  const yDomain = useMemo(() => {
+    if (spcData.length === 0) return ['auto', 'auto'];
+    const vals = spcData.map(d => d.displayValue).filter(v => typeof v === 'number' && !isNaN(v));
+    if (vals.length === 0) return ['auto', 'auto'];
+
+    const ucl = spcData[0]?.UCL;
+    const lcl = spcData[0]?.LCL;
+    const cl = spcData[0]?.CL;
+
+    let min = Math.min(...vals);
+    let max = Math.max(...vals);
+
+    if (lcl !== undefined && !isNaN(lcl)) min = Math.min(min, lcl);
+    if (ucl !== undefined && !isNaN(ucl)) max = Math.max(max, ucl);
+    if (cl !== undefined && !isNaN(cl)) {
+      min = Math.min(min, cl);
+      max = Math.max(max, cl);
+    }
+
+    const range = max - min;
+    const padding = range === 0 ? 0.5 : range * 0.15;
+    return [
+      parseFloat((min - padding).toFixed(3)), 
+      parseFloat((max + padding).toFixed(3))
+    ];
+  }, [spcData]);
 
   const normalCurveData = useMemo(() => {
     if (!stats || spcData.length === 0) return [];
@@ -457,7 +525,7 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
                     axisLine={false} 
                     tickLine={false} 
                     tick={{ fill: '#94a3b8', fontSize: 12 }}
-                    domain={['auto', 'auto']}
+                    domain={yDomain}
                   />
                   <Tooltip 
                     content={({ active, payload }) => {
@@ -508,9 +576,9 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
                     name="管制範圍"
                   />
                   
-                  <ReferenceLine y={spcData[0]?.CL} stroke="#94a3b8" strokeWidth={2} label={{ position: 'right', value: 'CL', fill: '#94a3b8', fontSize: 10, fontWeight: 'bold' }} />
-                  <ReferenceLine y={spcData[0]?.UCL} stroke="#fb7185" strokeDasharray="5 5" strokeWidth={2} label={{ position: 'right', value: 'UCL', fill: '#fb7185', fontSize: 10, fontWeight: 'bold' }} />
-                  <ReferenceLine y={spcData[0]?.LCL} stroke="#fb7185" strokeDasharray="5 5" strokeWidth={2} label={{ position: 'right', value: 'LCL', fill: '#fb7185', fontSize: 10, fontWeight: 'bold' }} />
+                  <ReferenceLine y={spcData[0]?.CL} stroke="#94a3b8" strokeWidth={2} label={{ position: 'right', value: `CL: ${spcData[0]?.CL}`, fill: '#64748b', fontSize: 10, fontWeight: 'bold' }} />
+                  <ReferenceLine y={spcData[0]?.UCL} stroke="#fb7185" strokeDasharray="5 5" strokeWidth={2} label={{ position: 'right', value: `UCL: ${spcData[0]?.UCL}`, fill: '#fb7185', fontSize: 10, fontWeight: 'bold' }} />
+                  <ReferenceLine y={spcData[0]?.LCL} stroke="#fb7185" strokeDasharray="5 5" strokeWidth={2} label={{ position: 'right', value: `LCL: ${spcData[0]?.LCL}`, fill: '#fb7185', fontSize: 10, fontWeight: 'bold' }} />
                   
                   <Line 
                     type="monotone" 
@@ -646,14 +714,13 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">項目 / 批次</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">量測值</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">CL</th>
-                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">UCL / USL</th>
-                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">LCL / LSL</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">UCL</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">LCL</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">狀態</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {spcData.map((d, i) => {
-                    const spec = project?.specs?.[selectedTestItemId];
                     return (
                       <tr key={i} className="hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-3">
@@ -661,14 +728,12 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
                           <p className="text-[10px] text-slate-400">{d.batch}</p>
                         </td>
                         <td className="px-6 py-3 text-xs font-mono text-slate-600">{d.displayValue}</td>
-                        <td className="px-6 py-3 text-xs font-mono text-slate-400">{d.CL}</td>
+                        <td className="px-6 py-3 text-xs font-mono text-slate-500 font-medium">{d.CL}</td>
                         <td className="px-6 py-3 text-xs font-mono">
-                          <span className="text-rose-400">{d.UCL}</span>
-                          {spec?.max !== undefined && <span className="ml-1 text-slate-300">/ {spec.max}</span>}
+                          <span className="text-rose-500 font-bold">{d.UCL}</span>
                         </td>
                         <td className="px-6 py-3 text-xs font-mono">
-                          <span className="text-rose-400">{d.LCL}</span>
-                          {spec?.min !== undefined && <span className="ml-1 text-slate-300">/ {spec.min}</span>}
+                          <span className="text-rose-500 font-bold">{d.LCL}</span>
                         </td>
                         <td className="px-6 py-3">
                           <span className={cn(
@@ -912,7 +977,7 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
                     axisLine={false} 
                     tickLine={false} 
                     tick={{ fill: '#94a3b8', fontSize: 14 }}
-                    domain={['auto', 'auto']}
+                    domain={yDomain}
                   />
                   <Tooltip 
                     content={({ active, payload }) => {
@@ -947,16 +1012,16 @@ export const SPCAnalysis = ({ project, experiments, testItems, selectedExperimen
                   
                   <Area 
                     type="monotone" 
-                    dataKey="UCL" 
+                    dataKey="range" 
                     stroke="none" 
                     fill="#fef2f2" 
                     fillOpacity={0.5} 
                     name="管制範圍"
                   />
                   
-                  <ReferenceLine y={spcData[0]?.CL} stroke="#94a3b8" strokeWidth={2} label={{ position: 'right', value: 'CL', fill: '#94a3b8', fontSize: 12, fontWeight: 'bold' }} />
-                  <ReferenceLine y={spcData[0]?.UCL} stroke="#fb7185" strokeDasharray="5 5" strokeWidth={2} label={{ position: 'right', value: 'UCL', fill: '#fb7185', fontSize: 12, fontWeight: 'bold' }} />
-                  <ReferenceLine y={spcData[0]?.LCL} stroke="#fb7185" strokeDasharray="5 5" strokeWidth={2} label={{ position: 'right', value: 'LCL', fill: '#fb7185', fontSize: 12, fontWeight: 'bold' }} />
+                  <ReferenceLine y={spcData[0]?.CL} stroke="#94a3b8" strokeWidth={2} label={{ position: 'right', value: `CL: ${spcData[0]?.CL}`, fill: '#64748b', fontSize: 12, fontWeight: 'bold' }} />
+                  <ReferenceLine y={spcData[0]?.UCL} stroke="#fb7185" strokeDasharray="5 5" strokeWidth={2} label={{ position: 'right', value: `UCL: ${spcData[0]?.UCL}`, fill: '#fb7185', fontSize: 12, fontWeight: 'bold' }} />
+                  <ReferenceLine y={spcData[0]?.LCL} stroke="#fb7185" strokeDasharray="5 5" strokeWidth={2} label={{ position: 'right', value: `LCL: ${spcData[0]?.LCL}`, fill: '#fb7185', fontSize: 12, fontWeight: 'bold' }} />
                   
                   <Line 
                     type="monotone" 

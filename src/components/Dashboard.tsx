@@ -217,8 +217,25 @@ export const Dashboard = () => {
     const overallMean = stats.mean;
     const stdDev = stats.stdDev;
 
-    let UCL = overallMean + 3 * stdDev;
-    let LCL = overallMean - 3 * stdDev;
+    const project = allProjects.find(p => p.id === selectedProjectId);
+    const selectedItem = testItems.find(t => t.id === selectedTestItemId);
+    const relevantItemIds = selectedItem ? testItems.filter(ti => ti.name === selectedItem.name).map(ti => ti.id) : [selectedTestItemId];
+    let configuredSpec = project?.specs?.[selectedTestItemId];
+    if (!configuredSpec) {
+      for (const id of relevantItemIds) {
+        if (project?.specs?.[id]) {
+          configuredSpec = project.specs[id];
+          break;
+        }
+      }
+    }
+    const configuredMax = configuredSpec?.max !== undefined ? configuredSpec.max : selectedItem?.specMax;
+    const configuredMin = configuredSpec?.min !== undefined ? configuredSpec.min : selectedItem?.specMin;
+    const configuredTarget = configuredSpec?.target !== undefined ? configuredSpec.target : selectedItem?.targetValue;
+
+    let UCL = configuredMax !== undefined ? configuredMax : overallMean + 3 * stdDev;
+    let LCL = configuredMin !== undefined ? configuredMin : overallMean - 3 * stdDev;
+    let CL = configuredTarget !== undefined ? configuredTarget : overallMean;
 
     let ewmaValue = overallMean;
     let cusumValue = 0;
@@ -238,7 +255,7 @@ export const Dashboard = () => {
         displayValue: parseFloat(currentVal.toFixed(3)),
         ewma: parseFloat(ewmaValue.toFixed(3)),
         cusum: parseFloat(cusumValue.toFixed(3)),
-        CL: parseFloat(overallMean.toFixed(3)),
+        CL: parseFloat(CL.toFixed(3)),
         UCL: parseFloat(UCL.toFixed(3)),
         LCL: parseFloat(LCL.toFixed(3)),
         range: [parseFloat(LCL.toFixed(3)), parseFloat(UCL.toFixed(3))],
@@ -246,7 +263,34 @@ export const Dashboard = () => {
         violations: pointViolations.map(v => v.rule)
       };
     });
-  }, [experiments, selectedTestItemId, chartType, selectedProjectId, selectedExperimentId, timeRange, allSamplesMap]);
+  }, [allProjects, testItems, experiments, selectedTestItemId, chartType, selectedProjectId, selectedExperimentId, timeRange, allSamplesMap]);
+
+  const yDomain = useMemo(() => {
+    if (spcData.length === 0) return ['auto', 'auto'];
+    const vals = spcData.map(d => d.displayValue).filter(v => typeof v === 'number' && !isNaN(v));
+    if (vals.length === 0) return ['auto', 'auto'];
+
+    const ucl = spcData[0]?.UCL;
+    const lcl = spcData[0]?.LCL;
+    const cl = spcData[0]?.CL;
+
+    let min = Math.min(...vals);
+    let max = Math.max(...vals);
+
+    if (lcl !== undefined && !isNaN(lcl)) min = Math.min(min, lcl);
+    if (ucl !== undefined && !isNaN(ucl)) max = Math.max(max, ucl);
+    if (cl !== undefined && !isNaN(cl)) {
+      min = Math.min(min, cl);
+      max = Math.max(max, cl);
+    }
+
+    const range = max - min;
+    const padding = range === 0 ? 0.5 : range * 0.15;
+    return [
+      parseFloat((min - padding).toFixed(3)), 
+      parseFloat((max + padding).toFixed(3))
+    ];
+  }, [spcData]);
 
   if (isLoading) {
     return (
@@ -407,7 +451,7 @@ export const Dashboard = () => {
                     axisLine={false} 
                     tickLine={false} 
                     tick={{ fill: '#94a3b8', fontSize: 10 }} 
-                    domain={['auto', 'auto']}
+                    domain={yDomain}
                   />
                   <Tooltip 
                     isAnimationActive={false}
@@ -473,9 +517,9 @@ export const Dashboard = () => {
                         isAnimationActive={false}
                       />
                       
-                      <ReferenceLine y={spcData[0].CL} stroke="#94a3b8" strokeWidth={1.5} label={{ position: 'right', value: 'CL', fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} />
-                      <ReferenceLine y={spcData[0].UCL} stroke="#fb7185" strokeDasharray="3 3" strokeWidth={1.5} label={{ position: 'right', value: 'UCL', fill: '#fb7185', fontSize: 9, fontWeight: 'bold' }} />
-                      <ReferenceLine y={spcData[0].LCL} stroke="#fb7185" strokeDasharray="3 3" strokeWidth={1.5} label={{ position: 'right', value: 'LCL', fill: '#fb7185', fontSize: 9, fontWeight: 'bold' }} />
+                      <ReferenceLine y={spcData[0].CL} stroke="#94a3b8" strokeWidth={1.5} label={{ position: 'right', value: `CL: ${spcData[0].CL}`, fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} />
+                      <ReferenceLine y={spcData[0].UCL} stroke="#fb7185" strokeDasharray="3 3" strokeWidth={1.5} label={{ position: 'right', value: `UCL: ${spcData[0].UCL}`, fill: '#fb7185', fontSize: 9, fontWeight: 'bold' }} />
+                      <ReferenceLine y={spcData[0].LCL} stroke="#fb7185" strokeDasharray="3 3" strokeWidth={1.5} label={{ position: 'right', value: `LCL: ${spcData[0].LCL}`, fill: '#fb7185', fontSize: 9, fontWeight: 'bold' }} />
                     </>
                   )}
                   
