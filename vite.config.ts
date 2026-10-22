@@ -6,7 +6,7 @@ import {defineConfig, loadEnv} from 'vite';
 export default defineConfig(({mode}) => {
   return {
     plugins: [react(), tailwindcss()],
-    base: '/system/',
+    base: process.env.VITE_BASE_PATH || './',
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
