@@ -22,7 +22,10 @@ import {
   Upload,
   X,
   StickyNote,
-  FileEdit
+  FileEdit,
+  Eye,
+  EyeOff,
+  CheckSquare
 } from 'lucide-react';
 import { cn, generateMockResults } from '../lib/utils';
 import { DataEntryModal } from './DataEntryModal';
@@ -163,6 +166,84 @@ export const ExperimentDetail = () => {
   const [activeTestItem, setActiveTestItem] = useState<TestItem | null>(null);
   const [activeSampleId, setActiveSampleId] = useState<string | null>(null);
   const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
+  const [sampleForTestItemSelect, setSampleForTestItemSelect] = useState<string | null>(null);
+  const [expandedRawMap, setExpandedRawMap] = useState<Record<string, boolean>>({});
+
+  const toggleRawExpanded = (sampleId: string, testItemId: string) => {
+    const key = `${sampleId}_${testItemId}`;
+    setExpandedRawMap(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleRemoveTestItemFromSample = async (sampleId: string, testItemId: string) => {
+    const item = testItems.find(t => t.id === testItemId);
+    setPromptConfig({
+      isOpen: true,
+      title: '移除測試項目',
+      message: `確定要從此樣品中移除「${item?.name || '此項目'}」嗎？`,
+      type: 'confirm',
+      onConfirm: async () => {
+        const updatedSamples = samples.map(s => {
+          if (s.id === sampleId) {
+            return {
+              ...s,
+              results: (s.results || []).filter(r => r.testItemId !== testItemId)
+            };
+          }
+          return s;
+        });
+        setSamples(updatedSamples);
+        await savePersistentSamples(id || 'e1', updatedSamples);
+        toast.success(`已從樣品移除測試項目: ${item?.name || ''}`);
+      }
+    });
+  };
+
+  const handleSaveSampleTestItems = async (sampleId: string, selectedItemIds: string[]) => {
+    const sample = samples.find(s => s.id === sampleId);
+    if (!sample) return;
+
+    const currentResults = sample.results || [];
+    const newResults: any[] = [];
+
+    selectedItemIds.forEach(itemId => {
+      const existing = currentResults.find(r => r.testItemId === itemId);
+      if (existing) {
+        newResults.push(existing);
+      } else {
+        const item = testItems.find(t => t.id === itemId);
+        if (item) {
+          const spec = project?.specs?.[itemId];
+          const target = spec?.target ?? (item as any).targetValue ?? 100;
+          const min = spec?.min ?? (item as any).specMin;
+          const max = spec?.max ?? (item as any).specMax;
+          
+          const rawValues = Array.from({ length: 3 }, () => Number((target + (Math.random() - 0.5) * (target * 0.1)).toFixed(2)));
+          const mean = Number((rawValues.reduce((a, b) => a + b, 0) / rawValues.length).toFixed(2));
+          const stdDev = Number(Math.sqrt(rawValues.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / rawValues.length).toFixed(3));
+          const isAnomaly = (min !== undefined && mean < min) || (max !== undefined && mean > max);
+
+          newResults.push({
+            id: `res${Date.now()}_${itemId}`,
+            sampleId,
+            testItemId: itemId,
+            rawValues,
+            mean,
+            stdDev,
+            max: Math.max(...rawValues),
+            min: Math.min(...rawValues),
+            isAnomaly,
+            status: isAnomaly ? 'Fail' : 'Pass'
+          });
+        }
+      }
+    });
+
+    const updatedSamples = samples.map(s => s.id === sampleId ? { ...s, results: newResults } : s);
+    setSamples(updatedSamples);
+    await savePersistentSamples(id || 'e1', updatedSamples);
+    setSampleForTestItemSelect(null);
+    toast.success('樣品測試項目已更新');
+  };
 
   // Prompt Modal State
   const [promptConfig, setPromptConfig] = useState<{
@@ -448,7 +529,7 @@ export const ExperimentDetail = () => {
             sampleCode: code,
             batchNumber: batch,
             moldBatchNumber: moldBatch || '',
-            results: generateMockResults(newId, testItems, project?.specs),
+            results: [], // 改為不預設顯示所有的測試項目，讓使用者自行選擇
             createdAt: new Date().toISOString(),
             gradeA: 0,
             gradeB: 0,
@@ -458,7 +539,8 @@ export const ExperimentDetail = () => {
           const updatedSamples = [...samples, newSample];
           setSamples(updatedSamples);
           await savePersistentSamples(id || 'e1', updatedSamples);
-          toast.success('已新增樣品');
+          toast.success('已新增樣品，請選取測試項目');
+          setSampleForTestItemSelect(newId); // 直接彈出選擇測試項目視窗
         }
       }
     });
@@ -1557,129 +1639,260 @@ export const ExperimentDetail = () => {
             </div>
           </div>
 
-          {samples.map((sample, sIdx) => (
-            <div key={sample.id} className="glass-panel rounded-2xl overflow-hidden">
-              <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-6">
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">樣品編號</p>
-                    <p className="text-sm font-bold text-slate-900">{sample.sampleCode}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">批次</p>
-                    <p className="text-sm font-medium text-slate-600">{sample.batchNumber}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">模具批號</p>
-                    <p className="text-sm font-medium text-slate-600">{sample.moldBatchNumber || '-'}</p>
-                  </div>
-                </div>
-                <div className="flex gap-2 items-center">
-                  <button 
-                    onClick={() => handleEditSample(sample.id)}
-                    className="p-2 text-slate-400 hover:text-brand-600 hover:bg-white rounded-lg transition-all"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </button>
-                  <button 
-                    onClick={() => handleRemoveSample(sample.id)}
-                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-white rounded-lg transition-all"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+          {samples.map((sample, sIdx) => {
+            const sampleResults = (sample.results || [])
+              .map(r => {
+                const item = testItems.find(t => t.id === r.testItemId);
+                const spec = project?.specs?.[r.testItemId];
+                return { result: r, item, spec };
+              })
+              .filter((x): x is { result: any; item: TestItem; spec: any } => !!x.item);
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-white">
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">測試項目</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">原始量測值</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">平均值</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">標準差</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">LSL</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">目標值</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">USL</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">狀態</th>
-                      <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {sample.results?.map((result: any) => {
-                      const testItem = testItems.find(t => t.id === result.testItemId);
-                      if (!testItem) return null;
-                      const spec = project?.specs?.[result.testItemId];
-                      return (
-                        <tr key={result.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2 group">
-                              <div>
-                                <p className="text-sm font-bold text-slate-900">{testItem?.name}</p>
-                                <p className="text-[10px] text-slate-400">單位: {testItem?.unit}</p>
+            return (
+              <div key={sample.id} className="glass-panel rounded-2xl overflow-hidden shadow-sm border border-slate-200/80">
+                <div className="p-4 sm:p-5 bg-slate-50/80 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-6">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">樣品編號</p>
+                      <p className="text-sm font-bold text-slate-900">{sample.sampleCode}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">批次</p>
+                      <p className="text-sm font-medium text-slate-600">{sample.batchNumber}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">模具批號</p>
+                      <p className="text-sm font-medium text-slate-600">{sample.moldBatchNumber || '-'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSampleForTestItemSelect(sample.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-brand-200 text-brand-600 hover:bg-brand-50 rounded-lg text-xs font-bold transition-all shadow-xs"
+                      title="自由勾選此樣品要進行分析的測試項目"
+                    >
+                      <CheckSquare className="w-3.5 h-3.5" />
+                      選擇測試項目
+                    </button>
+                    <button 
+                      onClick={() => handleEditSample(sample.id)}
+                      className="p-2 text-slate-400 hover:text-brand-600 hover:bg-white rounded-lg transition-all"
+                      title="編輯樣品資訊"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => handleRemoveSample(sample.id)}
+                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-white rounded-lg transition-all"
+                      title="刪除樣品"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {sampleResults.length === 0 ? (
+                  <div className="p-8 text-center bg-white">
+                    <div className="w-12 h-12 bg-brand-50 text-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                      <CheckSquare className="w-6 h-6" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-800">尚未選擇測試項目</p>
+                    <p className="text-xs text-slate-400 mt-1 mb-4">請點擊下方按鈕，自由勾選此樣品要納入分析與紀錄的量測指標。</p>
+                    <button
+                      onClick={() => setSampleForTestItemSelect(sample.id)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 transition-all shadow-md shadow-brand-200"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      選擇測試項目
+                    </button>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse min-w-[650px]">
+                      <thead>
+                        <tr className="bg-slate-100/60 border-b border-slate-200">
+                          <th className="px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider w-40 min-w-[140px] bg-slate-100/90 sticky left-0 z-10 border-r border-slate-200">
+                            測試項目 (橫軸)
+                          </th>
+                          {sampleResults.map(({ item }) => (
+                            <th key={item.id} className="px-5 py-3.5 text-center min-w-[160px] border-r border-slate-100 last:border-r-0">
+                              <div className="flex items-center justify-between gap-1">
+                                <div className="flex-1 text-center">
+                                  <p className="text-sm font-bold text-slate-900">{item.name}</p>
+                                  <p className="text-[11px] text-slate-400 font-normal">單位: {item.unit || '-'}</p>
+                                </div>
+                                <button
+                                  title={`自樣品移除 ${item.name}`}
+                                  onClick={() => handleRemoveTestItemFromSample(sample.id, item.id)}
+                                  className="p-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </div>
-                              <button 
-                                onClick={() => handleRemoveTestItem(testItem.id)}
-                                className="p-1 text-slate-300 hover:text-rose-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {/* 1. 平均值 */}
+                        <tr className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
+                            平均值
                           </td>
-                          <td className="px-6 py-4">
-                            <div className="flex gap-1">
-                              {result.rawValues.map((v: number, i: number) => (
-                                <span key={i} className="px-2 py-1 bg-slate-100 rounded text-[10px] font-mono text-slate-600">
-                                  {v.toFixed(2)}
-                                </span>
-                              ))}
-                            </div>
+                          {sampleResults.map(({ result }) => (
+                            <td key={result.id} className="px-5 py-3 text-center text-sm font-bold text-slate-900 border-r border-slate-100 last:border-r-0">
+                              {result.rawValues?.length > 0 ? result.mean.toFixed(2) : '-'}
+                            </td>
+                          ))}
+                        </tr>
+
+                        {/* 2. 標準差 */}
+                        <tr className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
+                            標準差
                           </td>
-                          <td className="px-6 py-4 text-center">
-                            <span className="text-sm font-bold text-slate-900">{result.mean.toFixed(2)}</span>
+                          {sampleResults.map(({ result }) => (
+                            <td key={result.id} className="px-5 py-3 text-center text-xs font-mono text-slate-600 border-r border-slate-100 last:border-r-0">
+                              {result.rawValues?.length > 0 ? result.stdDev.toFixed(3) : '-'}
+                            </td>
+                          ))}
+                        </tr>
+
+                        {/* 3. LSL */}
+                        <tr className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
+                            規格下限 (LSL)
                           </td>
-                          <td className="px-6 py-4 text-center">
-                            <span className="text-xs text-slate-500">{result.stdDev.toFixed(3)}</span>
+                          {sampleResults.map(({ item, spec }) => (
+                            <td key={item.id} className="px-5 py-3 text-center text-xs font-medium text-slate-600 border-r border-slate-100 last:border-r-0">
+                              {spec?.min ?? item.specMin ?? '-'}
+                            </td>
+                          ))}
+                        </tr>
+
+                        {/* 4. 目標值 */}
+                        <tr className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
+                            目標值
                           </td>
-                          <td className="px-6 py-4 text-center">
-                            <span className="text-xs font-medium text-slate-600">{spec?.min ?? '-'}</span>
+                          {sampleResults.map(({ item, spec }) => (
+                            <td key={item.id} className="px-5 py-3 text-center text-xs font-bold text-brand-600 border-r border-slate-100 last:border-r-0">
+                              {spec?.target ?? item.targetValue ?? '-'}
+                            </td>
+                          ))}
+                        </tr>
+
+                        {/* 5. USL */}
+                        <tr className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
+                            規格上限 (USL)
                           </td>
-                          <td className="px-6 py-4 text-center">
-                            <span className="text-xs font-medium text-slate-600">{spec?.target ?? '-'}</span>
+                          {sampleResults.map(({ item, spec }) => (
+                            <td key={item.id} className="px-5 py-3 text-center text-xs font-medium text-slate-600 border-r border-slate-100 last:border-r-0">
+                              {spec?.max ?? item.specMax ?? '-'}
+                            </td>
+                          ))}
+                        </tr>
+
+                        {/* 6. 狀態 */}
+                        <tr className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
+                            判定狀態
                           </td>
-                          <td className="px-6 py-4 text-center">
-                            <span className="text-xs font-medium text-slate-600">{spec?.max ?? '-'}</span>
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            {(() => {
-                              const isPass = (spec?.min === undefined || result.mean >= spec.min) && 
-                                             (spec?.max === undefined || result.mean <= spec.max);
+                          {sampleResults.map(({ result, item, spec }) => {
+                            const hasData = result.rawValues && result.rawValues.length > 0;
+                            if (!hasData) {
                               return (
+                                <td key={result.id} className="px-5 py-3 text-center border-r border-slate-100 last:border-r-0">
+                                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                                    待測
+                                  </span>
+                                </td>
+                              );
+                            }
+                            const lsl = spec?.min ?? item.specMin;
+                            const usl = spec?.max ?? item.specMax;
+                            const isPass = (lsl === undefined || result.mean >= lsl) && 
+                                           (usl === undefined || result.mean <= usl);
+                            return (
+                              <td key={result.id} className="px-5 py-3 text-center border-r border-slate-100 last:border-r-0">
                                 <span className={cn(
-                                  "px-2.5 py-0.5 rounded-full text-[10px] font-bold border",
-                                  isPass ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-rose-50 text-rose-600 border-rose-100"
+                                  "px-2.5 py-0.5 rounded-full text-[10px] font-bold border inline-block",
+                                  isPass ? "bg-emerald-50 text-emerald-600 border-emerald-200" : "bg-rose-50 text-rose-600 border-rose-200"
                                 )}>
                                   {isPass ? '合格' : '不合格'}
                                 </span>
-                              );
-                            })()}
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <button 
-                              onClick={() => handleEditData(sample.id, result.testItemId)}
-                              className="text-xs font-bold text-brand-600 hover:underline"
-                            >
-                              編輯數據
-                            </button>
-                          </td>
+                              </td>
+                            );
+                          })}
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+
+                        {/* 7. 原始數據 (點選查看) */}
+                        <tr className="bg-slate-50/30 hover:bg-slate-50/60 transition-colors border-t border-slate-200">
+                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
+                            原始數據
+                          </td>
+                          {sampleResults.map(({ result, item }) => {
+                            const isExpanded = !!expandedRawMap[`${sample.id}_${item.id}`];
+                            const hasValues = result.rawValues && result.rawValues.length > 0;
+                            return (
+                              <td key={result.id} className="px-5 py-3 text-center border-r border-slate-100 last:border-r-0">
+                                {!hasValues ? (
+                                  <span className="text-xs text-slate-400 italic">無數據</span>
+                                ) : !isExpanded ? (
+                                  <button
+                                    onClick={() => toggleRawExpanded(sample.id, item.id)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-brand-50 hover:text-brand-600 text-slate-600 rounded-md text-xs font-medium border border-slate-200 hover:border-brand-200 shadow-2xs transition-all"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-slate-400" />
+                                    點選查看 ({result.rawValues.length}筆)
+                                  </button>
+                                ) : (
+                                  <div className="space-y-1.5 py-1">
+                                    <div className="flex flex-wrap gap-1 justify-center max-w-[220px] mx-auto">
+                                      {result.rawValues.map((val: number, vIdx: number) => (
+                                        <span key={vIdx} className="px-1.5 py-0.5 bg-white border border-slate-200 rounded font-mono text-[11px] text-slate-700 shadow-2xs">
+                                          {val.toFixed(2)}
+                                        </span>
+                                      ))}
+                                    </div>
+                                    <button
+                                      onClick={() => toggleRawExpanded(sample.id, item.id)}
+                                      className="text-[10px] text-slate-400 hover:text-slate-600 underline block mx-auto"
+                                    >
+                                      收合
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+
+                        {/* 8. 操作 */}
+                        <tr className="hover:bg-slate-50/50 transition-colors border-t border-slate-200">
+                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
+                            操作
+                          </td>
+                          {sampleResults.map(({ item }) => (
+                            <td key={item.id} className="px-5 py-3 text-center border-r border-slate-100 last:border-r-0">
+                              <button
+                                onClick={() => handleEditData(sample.id, item.id)}
+                                className="inline-flex items-center gap-1 px-3 py-1 text-xs font-bold text-brand-600 hover:text-brand-700 hover:bg-brand-50 rounded-lg transition-colors border border-brand-200"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                編輯數據
+                              </button>
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* 2. Lens Defect Statistical Record */}
@@ -1858,6 +2071,20 @@ export const ExperimentDetail = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Sample-specific Test Item Selector Modal */}
+      {sampleForTestItemSelect && (
+        <SampleTestItemSelectorModal
+          isOpen={!!sampleForTestItemSelect}
+          sample={samples.find(s => s.id === sampleForTestItemSelect)}
+          testItems={testItems}
+          projectSpecs={project?.specs}
+          onClose={() => setSampleForTestItemSelect(null)}
+          onSave={async (selectedIds) => {
+            await handleSaveSampleTestItems(sampleForTestItemSelect, selectedIds);
+          }}
+        />
       )}
 
       {/* Test Item Selection Modal */}
@@ -2312,3 +2539,168 @@ const TestItemManagementModal = ({ isOpen, onClose, testItems, onCreateNew, onUp
     </div>
   );
 };
+
+interface SampleTestItemSelectorModalProps {
+  isOpen: boolean;
+  sample: Sample | undefined;
+  testItems: TestItem[];
+  projectSpecs?: Record<string, { min?: number; max?: number; target?: number }>;
+  onClose: () => void;
+  onSave: (selectedItemIds: string[]) => Promise<void>;
+}
+
+const SampleTestItemSelectorModal = ({
+  isOpen,
+  sample,
+  testItems,
+  projectSpecs,
+  onClose,
+  onSave
+}: SampleTestItemSelectorModalProps) => {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (sample && isOpen) {
+      const currentIds = (sample.results || []).map(r => r.testItemId);
+      setSelectedIds(currentIds);
+    }
+  }, [sample, isOpen]);
+
+  // Unique list of test items to select from
+  const uniqueItems = useMemo(() => {
+    const seen = new Set();
+    return testItems.filter(item => {
+      if (seen.has(item.name)) return false;
+      seen.add(item.name);
+      return true;
+    });
+  }, [testItems]);
+
+  if (!isOpen || !sample) return null;
+
+  const toggleItem = (id: string) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAll = () => {
+    setSelectedIds(uniqueItems.map(t => t.id));
+  };
+
+  const clearAll = () => {
+    setSelectedIds([]);
+  };
+
+  const handleConfirm = async () => {
+    setIsSubmitting(true);
+    try {
+      await onSave(selectedIds);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">自選樣品測試項目</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              樣品編號：<span className="font-bold text-slate-800">{sample.sampleCode}</span>（批次: {sample.batchNumber}）
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+          <div className="flex items-center justify-between text-xs text-slate-500 pb-2 border-b border-slate-100">
+            <span>已選取 {selectedIds.length} / {uniqueItems.length} 項</span>
+            <div className="flex gap-2">
+              <button 
+                type="button" 
+                onClick={selectAll}
+                className="text-brand-600 font-bold hover:underline"
+              >
+                全選
+              </button>
+              <span>•</span>
+              <button 
+                type="button" 
+                onClick={clearAll}
+                className="text-slate-400 font-medium hover:text-slate-600"
+              >
+                清空
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {uniqueItems.map(item => {
+              const isChecked = selectedIds.includes(item.id);
+              const spec = projectSpecs?.[item.id];
+              return (
+                <div 
+                  key={item.id}
+                  onClick={() => toggleItem(item.id)}
+                  className={cn(
+                    "flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer",
+                    isChecked 
+                      ? "bg-brand-50/60 border-brand-300 text-slate-900 shadow-2xs" 
+                      : "bg-white border-slate-100 hover:border-slate-200 text-slate-600"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => {}} // Controlled by parent div click
+                      className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500 pointer-events-none"
+                    />
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">{item.name}</p>
+                      <p className="text-[11px] text-slate-400">單位: {item.unit || '-'}</p>
+                    </div>
+                  </div>
+                  <div className="text-right text-[11px] text-slate-500">
+                    <p>規格: {spec?.min ?? item.specMin ?? '-'} ~ {spec?.max ?? item.specMax ?? '-'}</p>
+                    <p className="text-brand-600 font-medium">目標: {spec?.target ?? item.targetValue ?? '-'}</p>
+                  </div>
+                </div>
+              );
+            })}
+
+            {uniqueItems.length === 0 && (
+              <div className="py-8 text-center text-xs text-slate-400">
+                目前系統項目庫尚無測試項目，請先新增測試項目。
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-3">
+          <button 
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-xl text-sm font-bold transition-colors"
+          >
+            取消
+          </button>
+          <button 
+            type="button"
+            disabled={isSubmitting}
+            onClick={handleConfirm}
+            className="px-6 py-2 bg-brand-600 text-white rounded-xl text-sm font-bold hover:bg-brand-700 transition-all shadow-md shadow-brand-200 disabled:opacity-50"
+          >
+            {isSubmitting ? '儲存中...' : '確認選取'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
