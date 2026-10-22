@@ -5,7 +5,8 @@ import { getPersistentSamples, getPersistentTestItems, getPersistentDefectMaster
 import * as XLSX from 'xlsx';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
-  LineChart, Line, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar 
+  LineChart, Line, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
+  ScatterChart, Scatter, ReferenceLine
 } from 'recharts';
 import { 
   ArrowLeft, 
@@ -24,6 +25,497 @@ import { useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { toast } from 'sonner';
 
+interface TestItemScatterComparisonProps {
+  itemName: string;
+  item: TestItem | undefined;
+  selectedExperiments: Experiment[];
+  samples: Record<string, Sample[]>;
+  testItems: TestItem[];
+  projects: Project[];
+  groupBy: 'experiment' | 'sample';
+  showSpecs: boolean;
+  enableJitter: boolean;
+}
+
+const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
+  itemName,
+  item,
+  selectedExperiments,
+  samples,
+  testItems,
+  projects,
+  groupBy,
+  showSpecs,
+  enableJitter,
+}) => {
+  const relevantItemIds = useMemo(() => {
+    return testItems.filter(ti => ti.name === itemName).map(ti => ti.id);
+  }, [testItems, itemName]);
+
+  // Compute specifications
+  const specMin = useMemo(() => {
+    if (item?.specMin !== undefined && item?.specMin !== null) return item.specMin;
+    for (const exp of selectedExperiments) {
+      const proj = projects.find(p => p.id === exp.projectId);
+      for (const id of relevantItemIds) {
+        if (proj?.specs?.[id]?.min !== undefined) return proj.specs[id].min;
+      }
+    }
+    return undefined;
+  }, [item, selectedExperiments, projects, relevantItemIds]);
+
+  const specMax = useMemo(() => {
+    if (item?.specMax !== undefined && item?.specMax !== null) return item.specMax;
+    for (const exp of selectedExperiments) {
+      const proj = projects.find(p => p.id === exp.projectId);
+      for (const id of relevantItemIds) {
+        if (proj?.specs?.[id]?.max !== undefined) return proj.specs[id].max;
+      }
+    }
+    return undefined;
+  }, [item, selectedExperiments, projects, relevantItemIds]);
+
+  const hasSpecMin = specMin !== undefined && specMin !== null && !isNaN(Number(specMin));
+  const hasSpecMax = specMax !== undefined && specMax !== null && !isNaN(Number(specMax));
+
+  // Compute group data & points
+  const { groups, pointsData, meansData, yDomain } = useMemo(() => {
+    interface RawPoint {
+      val: number;
+      sampleCode?: string;
+      batchNumber?: string;
+      index: number;
+    }
+
+    interface GroupInfo {
+      key: string;
+      groupName: string;
+      fullName: string;
+      points: number[];
+      pointDetails: RawPoint[];
+      mean: number;
+      stdDev: number;
+      count: number;
+      min: number;
+      max: number;
+    }
+
+    const groupsList: GroupInfo[] = [];
+
+    if (groupBy === 'experiment') {
+      selectedExperiments.forEach((exp) => {
+        const expSamples = samples[exp.id] || [];
+        const rawPoints: RawPoint[] = [];
+        let pIndex = 1;
+
+        expSamples.forEach(sample => {
+          const matchingResults = (sample.results || []).filter(r => relevantItemIds.includes(r.testItemId));
+          matchingResults.forEach(res => {
+            if (res.rawValues && Array.isArray(res.rawValues) && res.rawValues.length > 0) {
+              res.rawValues.forEach(val => {
+                if (typeof val === 'number' && !isNaN(val)) {
+                  rawPoints.push({
+                    val: Number(val.toFixed(2)),
+                    sampleCode: sample.sampleCode,
+                    batchNumber: sample.batchNumber,
+                    index: pIndex++
+                  });
+                }
+              });
+            } else if (res.mean !== undefined && !isNaN(res.mean)) {
+              rawPoints.push({
+                val: Number(res.mean.toFixed(2)),
+                sampleCode: sample.sampleCode,
+                batchNumber: sample.batchNumber,
+                index: pIndex++
+              });
+            }
+          });
+        });
+
+        if (rawPoints.length > 0) {
+          const sum = rawPoints.reduce((acc, p) => acc + p.val, 0);
+          const mean = Number((sum / rawPoints.length).toFixed(2));
+          const variance = rawPoints.reduce((acc, p) => acc + Math.pow(p.val - mean, 2), 0) / rawPoints.length;
+          const stdDev = Number(Math.sqrt(variance).toFixed(2));
+          const vals = rawPoints.map(p => p.val);
+
+          groupsList.push({
+            key: exp.id,
+            groupName: exp.title.length > 10 ? exp.title.substring(0, 10) + '...' : exp.title,
+            fullName: exp.title,
+            points: vals,
+            pointDetails: rawPoints,
+            mean,
+            stdDev,
+            count: rawPoints.length,
+            min: Math.min(...vals),
+            max: Math.max(...vals)
+          });
+        }
+      });
+    } else {
+      // Group by sample
+      selectedExperiments.forEach(exp => {
+        const expSamples = samples[exp.id] || [];
+        expSamples.forEach(sample => {
+          const matchingResults = (sample.results || []).filter(r => relevantItemIds.includes(r.testItemId));
+          const rawPoints: RawPoint[] = [];
+          let pIndex = 1;
+
+          matchingResults.forEach(res => {
+            if (res.rawValues && Array.isArray(res.rawValues) && res.rawValues.length > 0) {
+              res.rawValues.forEach(val => {
+                if (typeof val === 'number' && !isNaN(val)) {
+                  rawPoints.push({
+                    val: Number(val.toFixed(2)),
+                    sampleCode: sample.sampleCode,
+                    batchNumber: sample.batchNumber,
+                    index: pIndex++
+                  });
+                }
+              });
+            } else if (res.mean !== undefined && !isNaN(res.mean)) {
+              rawPoints.push({
+                val: Number(res.mean.toFixed(2)),
+                sampleCode: sample.sampleCode,
+                batchNumber: sample.batchNumber,
+                index: pIndex++
+              });
+            }
+          });
+
+          if (rawPoints.length > 0) {
+            const sum = rawPoints.reduce((acc, p) => acc + p.val, 0);
+            const mean = Number((sum / rawPoints.length).toFixed(2));
+            const variance = rawPoints.reduce((acc, p) => acc + Math.pow(p.val - mean, 2), 0) / rawPoints.length;
+            const stdDev = Number(Math.sqrt(variance).toFixed(2));
+            const vals = rawPoints.map(p => p.val);
+
+            groupsList.push({
+              key: `${exp.id}-${sample.id}`,
+              groupName: sample.sampleCode,
+              fullName: `${exp.title} - ${sample.sampleCode}`,
+              points: vals,
+              pointDetails: rawPoints,
+              mean,
+              stdDev,
+              count: rawPoints.length,
+              min: Math.min(...vals),
+              max: Math.max(...vals)
+            });
+          }
+        });
+      });
+    }
+
+    const scatterPoints: any[] = [];
+    const meanPoints: any[] = [];
+    const allValues: number[] = [];
+
+    groupsList.forEach(g => {
+      meanPoints.push({
+        id: `${g.key}-mean`,
+        x: g.key,
+        groupKey: g.key,
+        groupName: g.groupName,
+        fullName: g.fullName,
+        y: g.mean,
+        mean: g.mean,
+        count: g.count,
+        stdDev: g.stdDev,
+        min: g.min,
+        max: g.max,
+        isMean: true
+      });
+      allValues.push(g.mean);
+
+      g.pointDetails.forEach(p => {
+        allValues.push(p.val);
+        // Deterministic slight horizontal jitter for overlapping points if enabled
+        const jitterOffset = ((p.index % 5) - 2) * 6; // -12, -6, 0, 6, 12 px
+        scatterPoints.push({
+          id: `${g.key}-pt-${p.index}`,
+          x: g.key,
+          groupKey: g.key,
+          groupName: g.groupName,
+          fullName: g.fullName,
+          y: p.val,
+          pointIndex: p.index,
+          sampleCode: p.sampleCode,
+          batchNumber: p.batchNumber,
+          diffFromMean: Number((p.val - g.mean).toFixed(2)),
+          jitterOffset,
+          isMean: false
+        });
+      });
+    });
+
+    let yDomain: [number, number] = [0, 100];
+    if (allValues.length > 0) {
+      let vMin = Math.min(...allValues);
+      let vMax = Math.max(...allValues);
+
+      if (showSpecs) {
+        if (hasSpecMin) vMin = Math.min(vMin, Number(specMin));
+        if (hasSpecMax) vMax = Math.max(vMax, Number(specMax));
+      }
+
+      const diff = vMax - vMin || 1;
+      const pad = Math.max(diff * 0.18, 0.5);
+      yDomain = [
+        Number((vMin - pad).toFixed(2)),
+        Number((vMax + pad).toFixed(2))
+      ];
+    }
+
+    return {
+      groups: groupsList,
+      pointsData: scatterPoints,
+      meansData: meanPoints,
+      yDomain
+    };
+  }, [selectedExperiments, samples, relevantItemIds, groupBy, showSpecs, hasSpecMin, hasSpecMax, specMin, specMax]);
+
+  if (groups.length === 0) return null;
+
+  // Custom Dot Renderer (stable sizing without CSS scale to prevent jitter)
+  const renderDot = (props: any) => {
+    const { cx, cy, payload } = props;
+    if (cx === undefined || cy === undefined || isNaN(cx) || isNaN(cy)) return null;
+    const finalX = enableJitter ? cx + (payload?.jitterOffset || 0) : cx;
+    return (
+      <circle
+        cx={finalX}
+        cy={cy}
+        r={6.5}
+        fill="#5b9bd5"
+        stroke="#2563eb"
+        strokeWidth={1.2}
+        fillOpacity={0.88}
+        className="cursor-pointer"
+      />
+    );
+  };
+
+  // Custom Mean Bar Renderer (bold horizontal black line like image)
+  const renderMeanBar = (props: any) => {
+    const { cx, cy } = props;
+    if (cx === undefined || cy === undefined || isNaN(cx) || isNaN(cy)) return null;
+    const barWidth = 44;
+    return (
+      <line
+        x1={cx - barWidth / 2}
+        x2={cx + barWidth / 2}
+        y1={cy}
+        y2={cy}
+        stroke="#000000"
+        strokeWidth={4.5}
+        strokeLinecap="butt"
+        className="cursor-pointer"
+      />
+    );
+  };
+
+  // Tooltip Renderer (pointer-events-none prevents tooltip from capturing mouse and oscillating)
+  const CustomScatterTooltip = ({ active, payload }: any) => {
+    if (!active || !payload || !payload.length) return null;
+    const data = payload[0]?.payload;
+    if (!data) return null;
+
+    if (data.isMean) {
+      return (
+        <div className="pointer-events-none select-none bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-700 min-w-[200px] z-50">
+          <div className="flex items-center gap-2 font-bold text-slate-100 pb-1.5 border-b border-slate-700">
+            <span className="w-3.5 h-1 bg-white rounded-full"></span>
+            <span className="truncate">{data.fullName}</span>
+          </div>
+          <div className="flex justify-between items-center text-amber-400 font-bold text-sm">
+            <span>平均值 (Mean):</span>
+            <span className="font-mono">{data.y} {item?.unit}</span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>數據點數 (N):</span>
+            <span className="font-mono text-white font-bold">{data.count}</span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>標準差 (SD):</span>
+            <span className="font-mono text-white font-bold">{data.stdDev} {item?.unit}</span>
+          </div>
+          <div className="flex justify-between text-slate-300">
+            <span>極值範圍:</span>
+            <span className="font-mono text-white">{data.min} ~ {data.max}</span>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="pointer-events-none select-none bg-white p-3 rounded-xl shadow-xl text-xs space-y-1.5 border border-slate-200 min-w-[200px] z-50">
+        <div className="flex items-center justify-between font-bold text-slate-800 pb-1.5 border-b border-slate-100">
+          <span className="truncate max-w-[140px]">{data.fullName}</span>
+          <span className="text-[10px] text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded font-bold">點 #{data.pointIndex}</span>
+        </div>
+        <div className="flex justify-between items-center text-brand-600 font-bold text-sm">
+          <span>量測值:</span>
+          <span className="font-mono">{data.y} {item?.unit}</span>
+        </div>
+        {data.sampleCode && (
+          <div className="flex justify-between text-slate-500">
+            <span>樣品名稱:</span>
+            <span className="text-slate-800 font-medium">{data.sampleCode}</span>
+          </div>
+        )}
+        {data.batchNumber && (
+          <div className="flex justify-between text-slate-500">
+            <span>批次:</span>
+            <span className="text-slate-800 font-medium">{data.batchNumber}</span>
+          </div>
+        )}
+        {data.diffFromMean !== undefined && (
+          <div className="flex justify-between text-slate-500">
+            <span>距組平均:</span>
+            <span className={cn("font-mono font-bold", data.diffFromMean >= 0 ? "text-emerald-600" : "text-rose-600")}>
+              {data.diffFromMean >= 0 ? `+${data.diffFromMean}` : data.diffFromMean} {item?.unit}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="glass-panel p-6 rounded-2xl border border-slate-200">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <div>
+          <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+            {itemName} 散布圖與平均值對比
+          </h3>
+          <span className="text-xs text-slate-400">單位: {item?.unit || '無'}</span>
+        </div>
+
+        {/* Legend matching the visual design */}
+        <div className="flex items-center gap-3.5 text-xs text-slate-600 bg-slate-50/80 px-3 py-1.5 rounded-xl border border-slate-200/60">
+          <div className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-full bg-[#5b9bd5] border border-[#2563eb] inline-block shadow-xs"></span>
+            <span className="font-medium text-slate-700">數據點</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-4 h-1 bg-black inline-block rounded-xs"></span>
+            <span className="font-medium text-slate-700">平均值 (Mean)</span>
+          </div>
+          {showSpecs && (hasSpecMin || hasSpecMax) && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-3.5 border-b-2 border-dashed border-rose-500 inline-block"></span>
+              <span className="font-medium text-rose-600">規格限制</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="h-72 w-full bg-slate-50/20 rounded-xl border border-slate-200/80 p-2">
+        <ResponsiveContainer width="100%" height="100%">
+          <ScatterChart margin={{ top: 20, right: 30, bottom: 25, left: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+
+            {/* Vertical grid line passing through each category column */}
+            {groups.map(g => (
+              <ReferenceLine 
+                key={`vline-${g.key}`} 
+                x={g.key} 
+                stroke="#cbd5e1" 
+                strokeWidth={1.5} 
+              />
+            ))}
+
+            {/* Spec lines */}
+            {showSpecs && hasSpecMin && (
+              <ReferenceLine 
+                y={Number(specMin)} 
+                stroke="#f43f5e" 
+                strokeDasharray="4 4" 
+                strokeWidth={1.2}
+                label={{ value: `LSL: ${specMin}`, position: 'insideTopLeft', fill: '#f43f5e', fontSize: 10, fontWeight: 'bold' }} 
+              />
+            )}
+            {showSpecs && hasSpecMax && (
+              <ReferenceLine 
+                y={Number(specMax)} 
+                stroke="#f43f5e" 
+                strokeDasharray="4 4" 
+                strokeWidth={1.2}
+                label={{ value: `USL: ${specMax}`, position: 'insideBottomLeft', fill: '#f43f5e', fontSize: 10, fontWeight: 'bold' }} 
+              />
+            )}
+
+            <XAxis 
+              dataKey="x" 
+              type="category" 
+              allowDuplicatedCategory={false}
+              axisLine={{ stroke: '#cbd5e1' }}
+              tickLine={{ stroke: '#cbd5e1' }}
+              tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }}
+              tickFormatter={(val) => {
+                const g = groups.find(group => group.key === val);
+                return g ? g.groupName : val;
+              }}
+            />
+            <YAxis 
+              dataKey="y" 
+              type="number" 
+              domain={yDomain}
+              width={65}
+              axisLine={{ stroke: '#cbd5e1' }}
+              tickLine={{ stroke: '#cbd5e1' }}
+              tick={{ fontSize: 11, fill: '#64748b', fontFamily: 'monospace' }}
+              unit={item?.unit ? ` ${item.unit}` : ''}
+            />
+
+            <Tooltip 
+              content={<CustomScatterTooltip />} 
+              wrapperStyle={{ pointerEvents: 'none', zIndex: 100 }}
+              isAnimationActive={false}
+              offset={14}
+              cursor={false}
+            />
+
+            {/* All Data Points */}
+            <Scatter
+              name="量測數據點"
+              data={pointsData}
+              shape={renderDot}
+              isAnimationActive={false}
+            />
+
+            {/* Mean Horizontal Bar */}
+            <Scatter
+              name="平均值"
+              data={meansData}
+              shape={renderMeanBar}
+              isAnimationActive={false}
+            />
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Summary Stats Cards */}
+      <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+        {groups.map(g => (
+          <div key={g.key} className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/60 text-xs shadow-xs">
+            <p className="font-bold text-slate-800 truncate mb-1" title={g.fullName}>{g.fullName}</p>
+            <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+              <div>平均: <span className="font-mono font-bold text-slate-900">{g.mean.toFixed(2)}</span></div>
+              <div>點數: <span className="font-mono font-bold text-slate-900">{g.count}</span></div>
+              <div>標準差: <span className="font-mono text-slate-700">{g.stdDev.toFixed(2)}</span></div>
+              <div>極值: <span className="font-mono text-slate-700">{g.min} ~ {g.max}</span></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export const DataComparison: React.FC = () => {
   const navigate = useNavigate();
   const { selectedExperiments, removeFromComparison, clearComparison } = useComparison();
@@ -34,6 +526,9 @@ export const DataComparison: React.FC = () => {
   const [hideIdentical, setHideIdentical] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [defectMasters, setDefectMasters] = useState<DefectMaster[]>([]);
+  const [chartGroupBy, setChartGroupBy] = useState<'experiment' | 'sample'>('experiment');
+  const [showSpecs, setShowSpecs] = useState(true);
+  const [enableJitter, setEnableJitter] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -639,52 +1134,69 @@ export const DataComparison: React.FC = () => {
                 </div>
               </div>
 
+              {/* Toolbar for Scatter Comparison */}
+              <div className="lg:col-span-2 flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-bold text-slate-700">散布圖分組依據：</span>
+                  <div className="bg-slate-100 p-1 rounded-xl flex text-xs">
+                    <button
+                      onClick={() => setChartGroupBy('experiment')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg font-bold transition-all",
+                        chartGroupBy === 'experiment' ? "bg-white text-brand-600 shadow-xs" : "text-slate-500 hover:text-slate-700"
+                      )}
+                    >
+                      依實驗分組
+                    </button>
+                    <button
+                      onClick={() => setChartGroupBy('sample')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg font-bold transition-all",
+                        chartGroupBy === 'sample' ? "bg-white text-brand-600 shadow-xs" : "text-slate-500 hover:text-slate-700"
+                      )}
+                    >
+                      依樣品分組
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-5 text-xs font-medium text-slate-600">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showSpecs}
+                      onChange={(e) => setShowSpecs(e.target.checked)}
+                      className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                    />
+                    <span>顯示規格界限 (USL/LSL)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none" title="若多個量測值相同時，微調水平位置避免點位重疊">
+                    <input
+                      type="checkbox"
+                      checked={enableJitter}
+                      onChange={(e) => setEnableJitter(e.target.checked)}
+                      className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                    />
+                    <span>點位微調防重疊 (Jitter)</span>
+                  </label>
+                </div>
+              </div>
+
               {Array.from(new Set(testItems.map(ti => ti.name))).map(itemName => {
                 const item = testItems.find(ti => ti.name === itemName);
-                const chartData = selectedExperiments.map(exp => ({
-                  name: exp.title.length > 10 ? exp.title.substring(0, 10) + '...' : exp.title,
-                  fullName: exp.title,
-                  value: getExperimentMeanByName(exp.id, itemName)
-                })).filter(d => d.value !== null);
-
-                if (chartData.length === 0) return null;
-
                 return (
-                  <div key={itemName} className="glass-panel p-6 rounded-2xl border border-slate-200">
-                    <div className="flex items-center justify-between mb-6">
-                      <h3 className="text-sm font-bold text-slate-900">{itemName} 趨勢對比</h3>
-                      <span className="text-xs text-slate-400">單位: {item?.unit}</span>
-                    </div>
-                    <div className="h-64 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          <XAxis 
-                            dataKey="name" 
-                            axisLine={false} 
-                            tickLine={false} 
-                            tick={{ fontSize: 10, fill: '#64748b' }} 
-                          />
-                          <YAxis 
-                            axisLine={false} 
-                            tickLine={false} 
-                            tick={{ fontSize: 10, fill: '#64748b' }} 
-                          />
-                          <Tooltip 
-                            contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                            formatter={(value: number) => [`${value} ${item?.unit}`, itemName]}
-                            labelFormatter={(label, payload) => payload[0]?.payload?.fullName || label}
-                          />
-                          <Bar 
-                            dataKey="value" 
-                            fill="#0ea5e9" 
-                            radius={[4, 4, 0, 0]} 
-                            barSize={40}
-                          />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
+                  <TestItemScatterComparison
+                    key={itemName}
+                    itemName={itemName}
+                    item={item}
+                    selectedExperiments={selectedExperiments}
+                    samples={samples}
+                    testItems={testItems}
+                    projects={projects}
+                    groupBy={chartGroupBy}
+                    showSpecs={showSpecs}
+                    enableJitter={enableJitter}
+                  />
                 );
               })}
               
