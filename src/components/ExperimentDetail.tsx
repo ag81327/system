@@ -1639,7 +1639,23 @@ export const ExperimentDetail = () => {
             </div>
           </div>
 
-          {samples.map((sample, sIdx) => {
+          {samples.length === 0 ? (
+            <div className="p-10 text-center bg-white border border-dashed border-slate-200 rounded-2xl">
+              <div className="w-12 h-12 bg-brand-50 text-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <CheckSquare className="w-6 h-6" />
+              </div>
+              <p className="text-base font-bold text-slate-800">目前尚無樣品資料</p>
+              <p className="text-xs text-slate-400 mt-1 mb-5">點擊下方「新增樣品」開始建立樣品並自選測試項目。</p>
+              <button
+                onClick={handleAddSample}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 transition-all shadow-lg shadow-brand-100"
+              >
+                <Plus className="w-4 h-4" />
+                新增第一筆樣品
+              </button>
+            </div>
+          ) : (
+            samples.map((sample, sIdx) => {
             const sampleResults = (sample.results || [])
               .map(r => {
                 const item = testItems.find(t => t.id === r.testItemId);
@@ -1892,7 +1908,7 @@ export const ExperimentDetail = () => {
                 )}
               </div>
             );
-          })}
+          }))}
         </div>
 
         {/* 2. Lens Defect Statistical Record */}

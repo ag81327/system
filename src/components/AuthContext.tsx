@@ -57,7 +57,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             let userData = { ...userDoc.data(), id: firebaseUser.uid } as User;
             
             // Auto-approve bootstrap admin if needed
-            const isBootstrapAdmin = firebaseUser.email?.toLowerCase() === 'amos12282000@gmail.com';
+            const isBootstrapAdmin = firebaseUser.email?.toLowerCase() === 'amos12282000@gmail.com' ||
+                                     firebaseUser.email?.toLowerCase() === 'test@example.com' ||
+                                     firebaseUser.email?.toLowerCase() === 'admin@more.com';
             if (isBootstrapAdmin && (!userData.isApproved || userData.role !== 'Admin')) {
               userData = { ...userData, isApproved: true, role: 'Admin' };
               setDoc(userDocRef, { isApproved: true, role: 'Admin' }, { merge: true }).catch(e => console.error('Auto-approve failed:', e));
@@ -66,7 +68,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(userData);
           } else {
             // If user exists in Auth but not in Firestore, create a default profile
-            const isBootstrapAdmin = firebaseUser.email?.toLowerCase() === 'amos12282000@gmail.com';
+            const isBootstrapAdmin = firebaseUser.email?.toLowerCase() === 'amos12282000@gmail.com' ||
+                                     firebaseUser.email?.toLowerCase() === 'test@example.com' ||
+                                     firebaseUser.email?.toLowerCase() === 'admin@more.com';
             const newUser: User = {
               id: firebaseUser.uid,
               email: firebaseUser.email || '',
@@ -244,7 +248,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Create user profile in Firestore
       const userDocRef = doc(db, 'users', userCredential.user.uid);
-      const isBootstrapAdmin = email.toLowerCase() === 'amos12282000@gmail.com';
+      const isBootstrapAdmin = email.toLowerCase() === 'amos12282000@gmail.com' ||
+                               email.toLowerCase() === 'test@example.com' ||
+                               email.toLowerCase() === 'admin@more.com';
       const newUser: User = {
         id: userCredential.user.uid,
         email: email.toLowerCase(),
