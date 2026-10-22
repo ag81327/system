@@ -215,27 +215,17 @@ export const ExperimentDetail = () => {
       } else {
         const item = testItems.find(t => t.id === itemId);
         if (item) {
-          const spec = project?.specs?.[itemId];
-          const target = spec?.target ?? (item as any).targetValue ?? 100;
-          const min = spec?.min ?? (item as any).specMin;
-          const max = spec?.max ?? (item as any).specMax;
-          
-          const rawValues = Array.from({ length: 3 }, () => Number((target + (Math.random() - 0.5) * (target * 0.1)).toFixed(2)));
-          const mean = Number((rawValues.reduce((a, b) => a + b, 0) / rawValues.length).toFixed(2));
-          const stdDev = Number(Math.sqrt(rawValues.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / rawValues.length).toFixed(3));
-          const isAnomaly = (min !== undefined && mean < min) || (max !== undefined && mean > max);
-
           newResults.push({
             id: `res${Date.now()}_${itemId}`,
             sampleId,
             testItemId: itemId,
-            rawValues,
-            mean,
-            stdDev,
-            max: Math.max(...rawValues),
-            min: Math.min(...rawValues),
-            isAnomaly,
-            status: isAnomaly ? 'Fail' : 'Pass'
+            rawValues: [],
+            mean: 0,
+            stdDev: 0,
+            max: 0,
+            min: 0,
+            isAnomaly: false,
+            status: 'Pass'
           });
         }
       }
@@ -854,7 +844,6 @@ export const ExperimentDetail = () => {
           ...s,
           results: (s.results || []).map(r => {
             if (r.testItemId === activeTestItem.id) {
-              const mean = newValues.reduce((a, b) => a + b, 0) / newValues.length;
               const sampleSpec = s.specs?.[activeTestItem.id];
               const projectSpec = project?.specs?.[activeTestItem.id];
               const lsl = sampleSpec?.min !== undefined ? sampleSpec.min : (projectSpec?.min !== undefined ? projectSpec.min : activeTestItem.specMin);
@@ -862,7 +851,11 @@ export const ExperimentDetail = () => {
               const hasMin = lsl !== undefined && lsl !== null && !isNaN(Number(lsl));
               const hasMax = usl !== undefined && usl !== null && !isNaN(Number(usl));
               const hasSpec = hasMin || hasMax;
-              const isAnomaly = hasSpec && (
+
+              const hasValues = newValues.length > 0;
+              const mean = hasValues ? (newValues.reduce((a, b) => a + b, 0) / newValues.length) : 0;
+              const stdDev = hasValues ? Math.sqrt(newValues.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / newValues.length) : 0;
+              const isAnomaly = hasValues && hasSpec && (
                 (hasMin && mean < Number(lsl)) || 
                 (hasMax && mean > Number(usl))
               );
@@ -870,11 +863,11 @@ export const ExperimentDetail = () => {
                 ...r,
                 rawValues: newValues,
                 mean,
-                stdDev: Math.sqrt(newValues.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / newValues.length),
-                max: Math.max(...newValues),
-                min: Math.min(...newValues),
+                stdDev,
+                max: hasValues ? Math.max(...newValues) : 0,
+                min: hasValues ? Math.min(...newValues) : 0,
                 isAnomaly,
-                status: !hasSpec ? 'Pass' as const : (isAnomaly ? 'Fail' as const : 'Pass' as const)
+                status: !hasValues || !hasSpec ? 'Pass' as const : (isAnomaly ? 'Fail' as const : 'Pass' as const)
               };
             }
             return r;
@@ -1955,7 +1948,13 @@ export const ExperimentDetail = () => {
                                     {result.mean.toFixed(2)} ± {result.stdDev.toFixed(3)}
                                   </span>
                                 ) : (
-                                  <span className="text-slate-400 font-sans text-xs italic">-</span>
+                                  <button
+                                    onClick={() => handleEditData(sample.id, item.id)}
+                                    className="text-slate-400 hover:text-brand-600 font-sans text-xs italic hover:underline flex items-center justify-center gap-1 mx-auto cursor-pointer"
+                                    title="點選輸入量測數據"
+                                  >
+                                    - (點選輸入)
+                                  </button>
                                 )}
                               </td>
                             );
@@ -1973,7 +1972,14 @@ export const ExperimentDetail = () => {
                             return (
                               <td key={result.id} className="px-5 py-3 text-center border-r border-slate-100 last:border-r-0">
                                 {!hasValues ? (
-                                  <span className="text-xs text-slate-400 italic">無數據</span>
+                                  <button
+                                    onClick={() => handleEditData(sample.id, item.id)}
+                                    className="text-xs text-brand-600 hover:text-brand-700 hover:underline inline-flex items-center gap-1 cursor-pointer font-medium"
+                                    title="點選輸入數據"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>輸入數據</span>
+                                  </button>
                                 ) : !isExpanded ? (
                                   <button
                                     onClick={() => toggleRawExpanded(sample.id, item.id)}
