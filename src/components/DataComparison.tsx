@@ -176,6 +176,8 @@ export const DataComparison: React.FC = () => {
       // Stats
       data.push(['其他統計']);
       data.push(['模具批號', ...comparisonColumns.map(col => col.sample?.moldBatchNumber || '-')]);
+      data.push(['配方名稱', ...comparisonColumns.map(col => col.sample?.formulationName || col.experiment.formulationName || '-')]);
+      data.push(['固化能量', ...comparisonColumns.map(col => col.sample?.curingEnergy !== undefined && col.sample?.curingEnergy !== '' ? String(col.sample?.curingEnergy) : (col.experiment.processConditions?.find(c => c.name.includes('固化') || c.name.includes('能量') || c.type === 'Energy')?.value ? `${col.experiment.processConditions.find(c => c.name.includes('固化') || c.name.includes('能量') || c.type === 'Energy')?.value} ${col.experiment.processConditions.find(c => c.name.includes('固化') || c.name.includes('能量') || c.type === 'Energy')?.unit || ''}`.trim() : '-'))]);
       data.push(['良率 (A級占比)', ...comparisonColumns.map(col => getSampleDefectStats(col.sample).yieldA)]);
       data.push(['良率 (A+B級占比)', ...comparisonColumns.map(col => getSampleDefectStats(col.sample).yieldAB)]);
       
@@ -522,6 +524,26 @@ export const DataComparison: React.FC = () => {
                       {comparisonColumns.map(col => (
                         <td key={col.id} className="p-4 text-sm text-slate-700">
                           {col.sample?.moldBatchNumber || '-'}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="p-4 text-sm font-medium text-slate-600 sticky left-0 bg-white z-10 border-r border-slate-50">配方名稱</td>
+                      {comparisonColumns.map(col => (
+                        <td key={col.id} className="p-4 text-sm text-slate-700">
+                          {col.sample?.formulationName || col.experiment.formulationName || '-'}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="p-4 text-sm font-medium text-slate-600 sticky left-0 bg-white z-10 border-r border-slate-50">固化能量</td>
+                      {comparisonColumns.map(col => (
+                        <td key={col.id} className="p-4 text-sm text-slate-700">
+                          {col.sample?.curingEnergy !== undefined && col.sample?.curingEnergy !== '' 
+                            ? String(col.sample?.curingEnergy) 
+                            : (col.experiment.processConditions?.find(c => c.name.includes('固化') || c.name.includes('能量') || c.type === 'Energy')?.value 
+                               ? `${col.experiment.processConditions.find(c => c.name.includes('固化') || c.name.includes('能量') || c.type === 'Energy')?.value} ${col.experiment.processConditions.find(c => c.name.includes('固化') || c.name.includes('能量') || c.type === 'Energy')?.unit || ''}`.trim()
+                               : '-')}
                         </td>
                       ))}
                     </tr>

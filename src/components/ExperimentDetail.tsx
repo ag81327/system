@@ -121,7 +121,7 @@ export const ExperimentDetail = () => {
           setFormulation(exp.formulation || []);
           setProcessConditions(exp.processConditions || []);
           setNotes(exp.notes || '');
-          setActiveFormulationProfileName('未選擇設定檔');
+          setActiveFormulationProfileName(exp.formulationName || '未選擇設定檔');
         } else {
           toast.error('找不到實驗紀錄');
           navigate('/experiments');
@@ -510,8 +510,39 @@ export const ExperimentDetail = () => {
     });
   };
 
+  const getFrontFormulationName = () => {
+    if (activeFormulationProfileName && activeFormulationProfileName !== '未選擇設定檔') {
+      return activeFormulationProfileName;
+    }
+    if (experiment?.formulationName) {
+      return experiment.formulationName;
+    }
+    return '';
+  };
+
+  const getFrontCuringEnergy = () => {
+    const exact = processConditions.find(c => c.name.includes('固化') && (c.name.includes('能量') || c.type === 'Energy'));
+    if (exact && exact.value !== undefined && exact.value !== null) {
+      return `${exact.value}${exact.unit ? ` ${exact.unit}` : ''}`;
+    }
+    const byCuring = processConditions.find(c => c.name.includes('固化'));
+    if (byCuring && byCuring.value !== undefined && byCuring.value !== null) {
+      return `${byCuring.value}${byCuring.unit ? ` ${byCuring.unit}` : ''}`;
+    }
+    const byEnergy = processConditions.find(c => c.name.includes('能量') || c.type === 'Energy');
+    if (byEnergy && byEnergy.value !== undefined && byEnergy.value !== null) {
+      return `${byEnergy.value}${byEnergy.unit ? ` ${byEnergy.unit}` : ''}`;
+    }
+    return '';
+  };
+
   const handleAddSample = () => {
     const nextCode = `SMP-${(samples.length + 1).toString().padStart(3, '0')}`;
+    const defaultFormulation = getFrontFormulationName() || (samples.length > 0 ? (samples[samples.length - 1].formulationName || '') : '');
+    const defaultEnergy = getFrontCuringEnergy() || (samples.length > 0 ? (String(samples[samples.length - 1].curingEnergy || '')) : '');
+    const defaultBatch = samples.length > 0 ? samples[samples.length - 1].batchNumber : 'B1';
+    const defaultMoldBatch = samples.length > 0 ? (samples[samples.length - 1].moldBatchNumber || 'M-001') : 'M-001';
+
     setPromptConfig({
       isOpen: true,
       title: '新增樣品',
@@ -519,11 +550,13 @@ export const ExperimentDetail = () => {
       type: 'multi-input',
       inputs: [
         { label: '樣品編號', value: nextCode, key: 'code' },
-        { label: '批次', value: 'B1', key: 'batch' },
-        { label: '模具批號', value: 'M-001', key: 'moldBatch' }
+        { label: '批次', value: defaultBatch, key: 'batch' },
+        { label: '模具批號', value: defaultMoldBatch, key: 'moldBatch' },
+        { label: '配方名稱', value: defaultFormulation, key: 'formulationName' },
+        { label: '固化能量', value: defaultEnergy, key: 'curingEnergy' }
       ],
       onConfirm: async (values) => {
-        const { code, batch, moldBatch } = values;
+        const { code, batch, moldBatch, formulationName, curingEnergy } = values;
         if (code && batch) {
           const newId = `s${Date.now()}`;
           const newSample: Sample = {
@@ -532,6 +565,8 @@ export const ExperimentDetail = () => {
             sampleCode: code,
             batchNumber: batch,
             moldBatchNumber: moldBatch || '',
+            formulationName: formulationName !== undefined ? formulationName : defaultFormulation,
+            curingEnergy: curingEnergy !== undefined ? curingEnergy : defaultEnergy,
             results: [], // 改為不預設顯示所有的測試項目，讓使用者自行選擇
             createdAt: new Date().toISOString(),
             gradeA: 0,
@@ -552,6 +587,9 @@ export const ExperimentDetail = () => {
   const handleEditSample = (sampleId: string) => {
     const sample = samples.find(s => s.id === sampleId);
     if (sample) {
+      const curFormulation = sample.formulationName ?? getFrontFormulationName();
+      const curEnergy = sample.curingEnergy ?? getFrontCuringEnergy();
+
       setPromptConfig({
         isOpen: true,
         title: '編輯樣品資訊',
@@ -560,16 +598,20 @@ export const ExperimentDetail = () => {
         inputs: [
           { label: '樣品編號', value: sample.sampleCode, key: 'code' },
           { label: '批次', value: sample.batchNumber, key: 'batch' },
-          { label: '模具批號', value: sample.moldBatchNumber || '', key: 'moldBatch' }
+          { label: '模具批號', value: sample.moldBatchNumber || '', key: 'moldBatch' },
+          { label: '配方名稱', value: curFormulation || '', key: 'formulationName' },
+          { label: '固化能量', value: curEnergy !== undefined && curEnergy !== null ? String(curEnergy) : '', key: 'curingEnergy' }
         ],
         onConfirm: async (values) => {
-          const { code, batch, moldBatch } = values;
+          const { code, batch, moldBatch, formulationName, curingEnergy } = values;
           if (code && batch) {
             const updatedSamples = samples.map(s => s.id === sampleId ? { 
               ...s, 
               sampleCode: code, 
               batchNumber: batch, 
-              moldBatchNumber: moldBatch 
+              moldBatchNumber: moldBatch,
+              formulationName: formulationName || '',
+              curingEnergy: curingEnergy || ''
             } : s);
             setSamples(updatedSamples);
             await savePersistentSamples(id || 'e1', updatedSamples);
@@ -1145,9 +1187,38 @@ export const ExperimentDetail = () => {
                 <FlaskConical className="w-5 h-5 text-brand-500" />
                 配置紀錄表格
               </h2>
-              <p className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded w-fit">
-                配方名稱: {activeFormulationProfileName}
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded w-fit">
+                  配方名稱: {activeFormulationProfileName}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const currentVal = activeFormulationProfileName !== '未選擇設定檔' ? activeFormulationProfileName : (experiment?.formulationName || '');
+                    setPromptConfig({
+                      isOpen: true,
+                      title: '設定配方名稱',
+                      message: '請輸入此實驗的配方名稱（將作為樣品預設帶入的值）:',
+                      type: 'input',
+                      inputs: [{ label: '配方名稱', value: currentVal, key: 'name' }],
+                      onConfirm: async (values) => {
+                        const val = values.name || '';
+                        setActiveFormulationProfileName(val || '未選擇設定檔');
+                        if (experiment) {
+                          const updatedExp = { ...experiment, formulationName: val };
+                          setExperiment(updatedExp);
+                          await savePersistentExperiment(updatedExp);
+                          toast.success('配方名稱已更新');
+                        }
+                      }
+                    });
+                  }}
+                  className="p-1 text-slate-400 hover:text-brand-600 rounded transition-colors"
+                  title="修改配方名稱"
+                >
+                  <Edit3 className="w-3 h-3" />
+                </button>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <div className="relative">
@@ -1724,7 +1795,7 @@ export const ExperimentDetail = () => {
             return (
               <div key={sample.id} className="glass-panel rounded-2xl overflow-hidden shadow-sm border border-slate-200/80">
                 <div className="p-4 sm:p-5 bg-slate-50/80 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex items-center gap-6">
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
                     <div>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">樣品編號</p>
                       <p className="text-sm font-bold text-slate-900">{sample.sampleCode}</p>
@@ -1736,6 +1807,18 @@ export const ExperimentDetail = () => {
                     <div>
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">模具批號</p>
                       <p className="text-sm font-medium text-slate-600">{sample.moldBatchNumber || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">配方名稱</p>
+                      <p className="text-sm font-medium text-slate-600">{sample.formulationName || getFrontFormulationName() || '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">固化能量</p>
+                      <p className="text-sm font-medium text-slate-600">
+                        {sample.curingEnergy !== undefined && sample.curingEnergy !== '' 
+                          ? String(sample.curingEnergy) 
+                          : (getFrontCuringEnergy() || '-')}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

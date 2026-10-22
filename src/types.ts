@@ -173,6 +173,8 @@ export interface Sample {
   sampleCode: string;
   batchNumber: string;
   moldBatchNumber?: string;
+  formulationName?: string;
+  curingEnergy?: string | number;
   createdAt: string;
   gradeA?: number;
   gradeB?: number;
