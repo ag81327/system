@@ -1731,50 +1731,72 @@ export const ExperimentDetail = () => {
                             測試項目 (橫軸)
                           </th>
                           {sampleResults.map(({ item }) => (
-                            <th key={item.id} className="px-5 py-3.5 text-center min-w-[160px] border-r border-slate-100 last:border-r-0">
-                              <div className="flex items-center justify-between gap-1">
+                            <th key={item.id} className="px-5 py-3.5 text-center min-w-[160px] border-r border-slate-100 last:border-r-0 bg-slate-50/50">
+                              <div className="flex items-center justify-between gap-1.5">
                                 <div className="flex-1 text-center">
                                   <p className="text-sm font-bold text-slate-900">{item.name}</p>
                                   <p className="text-[11px] text-slate-400 font-normal">單位: {item.unit || '-'}</p>
                                 </div>
-                                <button
-                                  title={`自樣品移除 ${item.name}`}
-                                  onClick={() => handleRemoveTestItemFromSample(sample.id, item.id)}
-                                  className="p-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-all"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  <button
+                                    title={`編輯 ${item.name} 數據`}
+                                    onClick={() => handleEditData(sample.id, item.id)}
+                                    className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-all"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    title={`自樣品移除 ${item.name}`}
+                                    onClick={() => handleRemoveTestItemFromSample(sample.id, item.id)}
+                                    className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
                             </th>
                           ))}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {/* 1. 平均值 */}
-                        <tr className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
-                            平均值
+                        {/* 1. 平均值 ± 標準差 (狀態變更為表格底色：合格綠色、不合格紅色) */}
+                        <tr className="transition-colors">
+                          <td className="px-5 py-3.5 text-xs font-bold text-slate-700 bg-slate-50/90 sticky left-0 z-10 border-r border-slate-200">
+                            平均值 ± 標準差
                           </td>
-                          {sampleResults.map(({ result }) => (
-                            <td key={result.id} className="px-5 py-3 text-center text-sm font-bold text-slate-900 border-r border-slate-100 last:border-r-0">
-                              {result.rawValues?.length > 0 ? result.mean.toFixed(2) : '-'}
-                            </td>
-                          ))}
+                          {sampleResults.map(({ result, item, spec }) => {
+                            const hasData = result.rawValues && result.rawValues.length > 0;
+                            const lsl = spec?.min ?? item.specMin;
+                            const usl = spec?.max ?? item.specMax;
+                            const isPass = hasData && (lsl === undefined || result.mean >= lsl) && 
+                                                      (usl === undefined || result.mean <= usl);
+
+                            return (
+                              <td 
+                                key={result.id} 
+                                className={cn(
+                                  "px-5 py-3.5 text-center text-sm font-mono font-bold border-r border-slate-100 last:border-r-0 transition-colors",
+                                  !hasData 
+                                    ? "bg-white text-slate-400" 
+                                    : isPass 
+                                      ? "bg-emerald-50 text-emerald-800" 
+                                      : "bg-rose-50 text-rose-800"
+                                )}
+                                title={hasData ? (isPass ? '合格' : '不合格 (超出規格)') : '尚未輸入數據'}
+                              >
+                                {hasData ? (
+                                  <span>
+                                    {result.mean.toFixed(2)} ± {result.stdDev.toFixed(3)}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-sans text-xs italic">-</span>
+                                )}
+                              </td>
+                            );
+                          })}
                         </tr>
 
-                        {/* 2. 標準差 */}
-                        <tr className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
-                            標準差
-                          </td>
-                          {sampleResults.map(({ result }) => (
-                            <td key={result.id} className="px-5 py-3 text-center text-xs font-mono text-slate-600 border-r border-slate-100 last:border-r-0">
-                              {result.rawValues?.length > 0 ? result.stdDev.toFixed(3) : '-'}
-                            </td>
-                          ))}
-                        </tr>
-
-                        {/* 3. LSL */}
+                        {/* 2. LSL */}
                         <tr className="hover:bg-slate-50/50 transition-colors">
                           <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
                             規格下限 (LSL)
@@ -1786,7 +1808,7 @@ export const ExperimentDetail = () => {
                           ))}
                         </tr>
 
-                        {/* 4. 目標值 */}
+                        {/* 3. 目標值 */}
                         <tr className="hover:bg-slate-50/50 transition-colors">
                           <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
                             目標值
@@ -1798,7 +1820,7 @@ export const ExperimentDetail = () => {
                           ))}
                         </tr>
 
-                        {/* 5. USL */}
+                        {/* 4. USL */}
                         <tr className="hover:bg-slate-50/50 transition-colors">
                           <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
                             規格上限 (USL)
@@ -1810,40 +1832,7 @@ export const ExperimentDetail = () => {
                           ))}
                         </tr>
 
-                        {/* 6. 狀態 */}
-                        <tr className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
-                            判定狀態
-                          </td>
-                          {sampleResults.map(({ result, item, spec }) => {
-                            const hasData = result.rawValues && result.rawValues.length > 0;
-                            if (!hasData) {
-                              return (
-                                <td key={result.id} className="px-5 py-3 text-center border-r border-slate-100 last:border-r-0">
-                                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
-                                    待測
-                                  </span>
-                                </td>
-                              );
-                            }
-                            const lsl = spec?.min ?? item.specMin;
-                            const usl = spec?.max ?? item.specMax;
-                            const isPass = (lsl === undefined || result.mean >= lsl) && 
-                                           (usl === undefined || result.mean <= usl);
-                            return (
-                              <td key={result.id} className="px-5 py-3 text-center border-r border-slate-100 last:border-r-0">
-                                <span className={cn(
-                                  "px-2.5 py-0.5 rounded-full text-[10px] font-bold border inline-block",
-                                  isPass ? "bg-emerald-50 text-emerald-600 border-emerald-200" : "bg-rose-50 text-rose-600 border-rose-200"
-                                )}>
-                                  {isPass ? '合格' : '不合格'}
-                                </span>
-                              </td>
-                            );
-                          })}
-                        </tr>
-
-                        {/* 7. 原始數據 (點選查看) */}
+                        {/* 5. 原始數據 (點選查看) */}
                         <tr className="bg-slate-50/30 hover:bg-slate-50/60 transition-colors border-t border-slate-200">
                           <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
                             原始數據
@@ -1883,24 +1872,6 @@ export const ExperimentDetail = () => {
                               </td>
                             );
                           })}
-                        </tr>
-
-                        {/* 8. 操作 */}
-                        <tr className="hover:bg-slate-50/50 transition-colors border-t border-slate-200">
-                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
-                            操作
-                          </td>
-                          {sampleResults.map(({ item }) => (
-                            <td key={item.id} className="px-5 py-3 text-center border-r border-slate-100 last:border-r-0">
-                              <button
-                                onClick={() => handleEditData(sample.id, item.id)}
-                                className="inline-flex items-center gap-1 px-3 py-1 text-xs font-bold text-brand-600 hover:text-brand-700 hover:bg-brand-50 rounded-lg transition-colors border border-brand-200"
-                              >
-                                <Edit3 className="w-3 h-3" />
-                                編輯數據
-                              </button>
-                            </td>
-                          ))}
                         </tr>
                       </tbody>
                     </table>

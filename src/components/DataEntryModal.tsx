@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Calculator, AlertTriangle, RotateCcw } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { TestItem } from '../types';
@@ -30,16 +30,52 @@ export const DataEntryModal = ({
 
   const [showConfirm, setShowConfirm] = useState(false);
 
+  // Sync initial values when modal opens or props change
+  useEffect(() => {
+    if (isOpen) {
+      setValues(initialValues.length > 0 ? initialValues.map(v => v.toString()) : ['']);
+      setShowConfirm(false);
+    }
+  }, [initialValues, isOpen]);
+
+  // Support ESC key to cancel/close
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const handleAddValue = () => setValues([...values, '']);
   const handleRemoveValue = (index: number) => {
     if (values.length > 1) {
       setValues(values.filter((_, i) => i !== index));
+    } else {
+      setValues(['']);
     }
   };
 
   const handleValueChange = (index: number, val: string) => {
+    // If user pastes multiple values (separated by newlines, commas, or spaces)
+    if (val.includes('\n') || val.includes('\t') || (val.includes(',') && val.split(',').length > 1)) {
+      const parts = val
+        .split(/[\n\t,]+/)
+        .map(p => p.trim())
+        .filter(p => p !== '');
+      if (parts.length > 1) {
+        const newValues = [...values];
+        newValues.splice(index, 1, ...parts);
+        setValues(newValues);
+        return;
+      }
+    }
+
     const newValues = [...values];
     newValues[index] = val;
     setValues(newValues);
@@ -56,25 +92,40 @@ export const DataEntryModal = ({
                       (specMax !== undefined && mean > specMax);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div 
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div className="flex-shrink-0 px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white z-10">
           <div>
             <h3 className="text-lg font-bold text-slate-900">輸入測試數據</h3>
             <p className="text-xs text-slate-500">{testItem.name} ({testItem.unit})</p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-            <X className="w-5 h-5 text-slate-400" />
+          <button 
+            type="button"
+            onClick={onClose} 
+            className="p-2 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
+            title="關閉 (Esc)"
+          >
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
+        {/* Modal Body - Scrollable */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 min-h-0">
           {/* Spec Info */}
           <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
             <div className="flex-1">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">規格範圍</p>
               <p className="text-sm font-bold text-slate-900">
-                {specMin ?? '-'} - {specMax ?? '-'} {testItem.unit}
+                {specMin ?? '-'} ~ {specMax ?? '-'} {testItem.unit}
               </p>
             </div>
             <div className="text-right">
@@ -86,8 +137,11 @@ export const DataEntryModal = ({
           {/* Values List */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">量測數值</label>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                量測數值 (共 {values.length} 點)
+              </label>
               <button 
+                type="button"
                 onClick={handleClearAll}
                 className="text-[10px] font-bold text-slate-400 hover:text-rose-500 flex items-center gap-1 transition-colors"
               >
@@ -95,47 +149,55 @@ export const DataEntryModal = ({
                 清除全部
               </button>
             </div>
-            {values.map((val, index) => {
-              const num = parseFloat(val);
-              const isValOutOfSpec = !isNaN(num) && (
-                (specMin !== undefined && num < specMin) || 
-                (specMax !== undefined && num > specMax)
-              );
-              
-              return (
-                <div key={index} className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-400">
-                    {index + 1}
-                  </div>
-                  <div className="flex-1 relative">
-                    <input 
-                      type="number" 
-                      value={val}
-                      onChange={(e) => handleValueChange(index, e.target.value)}
-                      placeholder="0.00"
-                      className={cn(
-                        "w-full px-4 py-2 bg-slate-50 border rounded-lg text-sm outline-none transition-all",
-                        isValOutOfSpec 
-                          ? "border-rose-300 bg-rose-50/50 text-rose-700 focus:ring-rose-100" 
-                          : "border-slate-200 focus:bg-white focus:border-brand-500 focus:ring-brand-50"
+
+            <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
+              {values.map((val, index) => {
+                const num = parseFloat(val);
+                const isValOutOfSpec = !isNaN(num) && (
+                  (specMin !== undefined && num < specMin) || 
+                  (specMax !== undefined && num > specMax)
+                );
+                
+                return (
+                  <div key={index} className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-400 flex-shrink-0">
+                      {index + 1}
+                    </div>
+                    <div className="flex-1 relative">
+                      <input 
+                        type="number" 
+                        step="any"
+                        value={val}
+                        onChange={(e) => handleValueChange(index, e.target.value)}
+                        placeholder="0.00"
+                        className={cn(
+                          "w-full px-4 py-2 bg-slate-50 border rounded-lg text-sm outline-none transition-all font-mono",
+                          isValOutOfSpec 
+                            ? "border-rose-300 bg-rose-50/50 text-rose-700 focus:ring-rose-100" 
+                            : "border-slate-200 focus:bg-white focus:border-brand-500 focus:ring-brand-50"
+                        )}
+                      />
+                      {isValOutOfSpec && (
+                        <AlertTriangle className="w-4 h-4 text-rose-500 absolute right-3 top-1/2 -translate-y-1/2" />
                       )}
-                    />
-                    {isValOutOfSpec && (
-                      <AlertTriangle className="w-3 h-3 text-rose-500 absolute right-3 top-1/2 -translate-y-1/2" />
-                    )}
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={() => handleRemoveValue(index)}
+                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all flex-shrink-0"
+                      title="刪除此點"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
-                  <button 
-                    onClick={() => handleRemoveValue(index)}
-                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+
             <button 
+              type="button"
               onClick={handleAddValue}
-              className="w-full py-2 border-2 border-dashed border-slate-200 rounded-lg text-xs font-bold text-slate-400 hover:border-brand-300 hover:text-brand-600 hover:bg-brand-50 transition-all flex items-center justify-center gap-2"
+              className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-lg text-xs font-bold text-slate-400 hover:border-brand-300 hover:text-brand-600 hover:bg-brand-50 transition-all flex items-center justify-center gap-2"
             >
               <Plus className="w-4 h-4" />
               新增量測點
@@ -153,32 +215,36 @@ export const DataEntryModal = ({
                 <span className="text-sm font-bold text-slate-900">計算平均值</span>
               </div>
               <span className={cn(
-                "text-lg font-bold",
+                "text-lg font-bold font-mono",
                 isOutOfSpec ? "text-rose-600" : "text-emerald-600"
               )}>
-                {mean.toFixed(2)} {testItem.unit}
+                {numericValues.length > 0 ? mean.toFixed(3) : '-'} {testItem.unit}
               </span>
             </div>
             {isOutOfSpec && (
-              <p className="text-[10px] font-bold text-rose-500 mt-2 uppercase tracking-wider">
-                警告：結果超出規格範圍
+              <p className="text-[11px] font-bold text-rose-600 mt-2 uppercase tracking-wider flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                警告：平均值超出規格範圍 ({specMin ?? '-'} ~ {specMax ?? '-'})
               </p>
             )}
           </div>
         </div>
 
-        <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
+        {/* Modal Footer - Always Sticky at bottom */}
+        <div className="flex-shrink-0 p-4 sm:p-5 bg-slate-50 border-t border-slate-100 flex gap-3 z-10">
           {showConfirm ? (
             <div className="flex-1 flex flex-col gap-3">
               <p className="text-xs font-bold text-rose-600 text-center">平均值超出規格，確定要儲存嗎？</p>
               <div className="flex gap-3">
                 <button 
+                  type="button"
                   onClick={() => setShowConfirm(false)}
                   className="flex-1 py-2 text-sm font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
                 >
                   返回修改
                 </button>
                 <button 
+                  type="button"
                   onClick={() => onSave(numericValues)}
                   className="flex-1 py-2 text-sm font-bold text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition-all shadow-lg shadow-rose-200"
                 >
@@ -189,14 +255,16 @@ export const DataEntryModal = ({
           ) : (
             <>
               <button 
+                type="button"
                 onClick={onClose}
                 className="flex-1 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
               >
-                取消
+                取消返回
               </button>
               <button 
+                type="button"
                 onClick={() => {
-                  if (isOutOfSpec) {
+                  if (numericValues.length > 0 && isOutOfSpec) {
                     setShowConfirm(true);
                   } else {
                     onSave(numericValues);
@@ -204,7 +272,7 @@ export const DataEntryModal = ({
                 }}
                 className="flex-1 py-2.5 text-sm font-bold text-white bg-brand-600 rounded-xl hover:bg-brand-700 transition-all shadow-lg shadow-brand-200"
               >
-                儲存結果
+                儲存結果 ({numericValues.length} 點)
               </button>
             </>
           )}
