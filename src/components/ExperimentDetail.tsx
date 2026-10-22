@@ -25,10 +25,12 @@ import {
   FileEdit,
   Eye,
   EyeOff,
-  CheckSquare
+  CheckSquare,
+  Sliders
 } from 'lucide-react';
 import { cn, generateMockResults } from '../lib/utils';
 import { DataEntryModal } from './DataEntryModal';
+import { SampleSpecModal } from './SampleSpecModal';
 import { ExperimentModal } from './ExperimentModal';
 import { RichTextEditor } from './RichTextEditor';
 import { SpecificationManager } from './SpecificationManager';
@@ -167,6 +169,7 @@ export const ExperimentDetail = () => {
   const [activeSampleId, setActiveSampleId] = useState<string | null>(null);
   const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
   const [sampleForTestItemSelect, setSampleForTestItemSelect] = useState<string | null>(null);
+  const [sampleForSpecModal, setSampleForSpecModal] = useState<string | null>(null);
   const [expandedRawMap, setExpandedRawMap] = useState<Record<string, boolean>>({});
 
   const toggleRawExpanded = (sampleId: string, testItemId: string) => {
@@ -810,9 +813,17 @@ export const ExperimentDetail = () => {
           results: (s.results || []).map(r => {
             if (r.testItemId === activeTestItem.id) {
               const mean = newValues.reduce((a, b) => a + b, 0) / newValues.length;
-              const spec = project?.specs?.[activeTestItem.id];
-              const isAnomaly = (spec?.min !== undefined && mean < spec.min) || 
-                                (spec?.max !== undefined && mean > spec.max);
+              const sampleSpec = s.specs?.[activeTestItem.id];
+              const projectSpec = project?.specs?.[activeTestItem.id];
+              const lsl = sampleSpec?.min !== undefined ? sampleSpec.min : (projectSpec?.min !== undefined ? projectSpec.min : activeTestItem.specMin);
+              const usl = sampleSpec?.max !== undefined ? sampleSpec.max : (projectSpec?.max !== undefined ? projectSpec.max : activeTestItem.specMax);
+              const hasMin = lsl !== undefined && lsl !== null && !isNaN(Number(lsl));
+              const hasMax = usl !== undefined && usl !== null && !isNaN(Number(usl));
+              const hasSpec = hasMin || hasMax;
+              const isAnomaly = hasSpec && (
+                (hasMin && mean < Number(lsl)) || 
+                (hasMax && mean > Number(usl))
+              );
               return {
                 ...r,
                 rawValues: newValues,
@@ -821,7 +832,7 @@ export const ExperimentDetail = () => {
                 max: Math.max(...newValues),
                 min: Math.min(...newValues),
                 isAnomaly,
-                status: isAnomaly ? 'Fail' as const : 'Pass' as const
+                status: !hasSpec ? 'Pass' as const : (isAnomaly ? 'Fail' as const : 'Pass' as const)
               };
             }
             return r;
@@ -833,6 +844,44 @@ export const ExperimentDetail = () => {
     setSamples(updatedSamples);
     await savePersistentSamples(id || 'e1', updatedSamples);
     setIsDataModalOpen(false);
+  };
+
+  const handleSaveSampleSpecs = async (
+    sampleId: string, 
+    newSpecs: Record<string, { min?: number; max?: number; target?: number }>
+  ) => {
+    const updatedSamples = samples.map(s => {
+      if (s.id === sampleId) {
+        return {
+          ...s,
+          specs: newSpecs,
+          results: (s.results || []).map(r => {
+            const item = testItems.find(t => t.id === r.testItemId);
+            const sampleSpec = newSpecs[r.testItemId];
+            const projectSpec = project?.specs?.[r.testItemId];
+            const lsl = sampleSpec?.min !== undefined ? sampleSpec.min : (projectSpec?.min !== undefined ? projectSpec.min : item?.specMin);
+            const usl = sampleSpec?.max !== undefined ? sampleSpec.max : (projectSpec?.max !== undefined ? projectSpec.max : item?.specMax);
+            const hasMin = lsl !== undefined && lsl !== null && !isNaN(Number(lsl));
+            const hasMax = usl !== undefined && usl !== null && !isNaN(Number(usl));
+            const hasSpec = hasMin || hasMax;
+            const isAnomaly = hasSpec && (
+              (hasMin && r.mean < Number(lsl)) ||
+              (hasMax && r.mean > Number(usl))
+            );
+            return {
+              ...r,
+              isAnomaly,
+              status: !hasSpec ? 'Pass' as const : (isAnomaly ? 'Fail' as const : 'Pass' as const)
+            };
+          })
+        };
+      }
+      return s;
+    });
+
+    setSamples(updatedSamples);
+    await savePersistentSamples(id || 'e1', updatedSamples);
+    toast.success('已儲存樣品自定義規格');
   };
 
   const handleSaveExperiment = async (expData: Omit<Experiment, 'id'>) => {
@@ -1659,7 +1708,15 @@ export const ExperimentDetail = () => {
             const sampleResults = (sample.results || [])
               .map(r => {
                 const item = testItems.find(t => t.id === r.testItemId);
-                const spec = project?.specs?.[r.testItemId];
+                const sampleSpec = sample.specs?.[r.testItemId];
+                const projectSpec = project?.specs?.[r.testItemId];
+                
+                const min = sampleSpec?.min !== undefined ? sampleSpec.min : (projectSpec?.min !== undefined ? projectSpec.min : item?.specMin);
+                const max = sampleSpec?.max !== undefined ? sampleSpec.max : (projectSpec?.max !== undefined ? projectSpec.max : item?.specMax);
+                const target = sampleSpec?.target !== undefined ? sampleSpec.target : (projectSpec?.target !== undefined ? projectSpec.target : item?.targetValue);
+                
+                const isCustom = !!sampleSpec && (sampleSpec.min !== undefined || sampleSpec.max !== undefined || sampleSpec.target !== undefined);
+                const spec = { min, max, target, isCustom };
                 return { result: r, item, spec };
               })
               .filter((x): x is { result: any; item: TestItem; spec: any } => !!x.item);
@@ -1689,6 +1746,17 @@ export const ExperimentDetail = () => {
                     >
                       <CheckSquare className="w-3.5 h-3.5" />
                       選擇測試項目
+                    </button>
+                    <button
+                      onClick={() => setSampleForSpecModal(sample.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-brand-300 hover:text-brand-600 rounded-lg text-xs font-bold transition-all shadow-xs"
+                      title="為此樣品自定義測試規格（未設定則沿用專案規格）"
+                    >
+                      <Sliders className="w-3.5 h-3.5 text-slate-400" />
+                      樣品規格設定
+                      {sample.specs && Object.keys(sample.specs).length > 0 && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-brand-500 inline-block" title="已有自定義規格" />
+                      )}
                     </button>
                     <button 
                       onClick={() => handleEditSample(sample.id)}
@@ -1731,35 +1799,33 @@ export const ExperimentDetail = () => {
                             測試項目 (橫軸)
                           </th>
                           {sampleResults.map(({ item }) => (
-                            <th key={item.id} className="px-5 py-3.5 text-center min-w-[160px] border-r border-slate-100 last:border-r-0 bg-slate-50/50">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <div className="flex-1 text-center">
-                                  <p className="text-sm font-bold text-slate-900">{item.name}</p>
-                                  <p className="text-[11px] text-slate-400 font-normal">單位: {item.unit || '-'}</p>
-                                </div>
-                                <div className="flex items-center gap-1 flex-shrink-0">
-                                  <button
-                                    title={`編輯 ${item.name} 數據`}
-                                    onClick={() => handleEditData(sample.id, item.id)}
-                                    className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-all"
-                                  >
-                                    <Edit3 className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    title={`自樣品移除 ${item.name}`}
-                                    onClick={() => handleRemoveTestItemFromSample(sample.id, item.id)}
-                                    className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
+                            <th key={item.id} className="relative px-8 py-3.5 text-center min-w-[160px] border-r border-slate-100 last:border-r-0 bg-slate-50/50">
+                              <div className="w-full text-center">
+                                <p className="text-sm font-bold text-slate-900 leading-tight">{item.name}</p>
+                                <p className="text-[11px] text-slate-400 font-normal mt-0.5">單位: {item.unit || '-'}</p>
+                              </div>
+                              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                                <button
+                                  title={`編輯 ${item.name} 數據`}
+                                  onClick={() => handleEditData(sample.id, item.id)}
+                                  className="p-1 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-md transition-all"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  title={`自樣品移除 ${item.name}`}
+                                  onClick={() => handleRemoveTestItemFromSample(sample.id, item.id)}
+                                  className="p-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-md transition-all"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             </th>
                           ))}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {/* 1. 平均值 ± 標準差 (狀態變更為表格底色：合格綠色、不合格紅色) */}
+                        {/* 1. 平均值 ± 標準差 (狀態變更為表格底色：合格綠色、不合格紅色、未設定規格白色) */}
                         <tr className="transition-colors">
                           <td className="px-5 py-3.5 text-xs font-bold text-slate-700 bg-slate-50/90 sticky left-0 z-10 border-r border-slate-200">
                             平均值 ± 標準差
@@ -1768,21 +1834,38 @@ export const ExperimentDetail = () => {
                             const hasData = result.rawValues && result.rawValues.length > 0;
                             const lsl = spec?.min ?? item.specMin;
                             const usl = spec?.max ?? item.specMax;
-                            const isPass = hasData && (lsl === undefined || result.mean >= lsl) && 
-                                                      (usl === undefined || result.mean <= usl);
+                            const hasMin = lsl !== undefined && lsl !== null && !isNaN(Number(lsl));
+                            const hasMax = usl !== undefined && usl !== null && !isNaN(Number(usl));
+                            const hasSpec = hasMin || hasMax;
+
+                            const isPass = hasData && hasSpec && 
+                              (!hasMin || result.mean >= Number(lsl)) && 
+                              (!hasMax || result.mean <= Number(usl));
+
+                            const cellBg = !hasData
+                              ? "bg-white text-slate-400"
+                              : !hasSpec
+                                ? "bg-white text-slate-800"
+                                : isPass
+                                  ? "bg-emerald-50 text-emerald-800"
+                                  : "bg-rose-50 text-rose-800";
+
+                            const cellTitle = !hasData
+                              ? '尚未輸入數據'
+                              : !hasSpec
+                                ? '未設定規格限制'
+                                : isPass
+                                  ? '合格'
+                                  : '不合格 (超出規格)';
 
                             return (
                               <td 
                                 key={result.id} 
                                 className={cn(
                                   "px-5 py-3.5 text-center text-sm font-mono font-bold border-r border-slate-100 last:border-r-0 transition-colors",
-                                  !hasData 
-                                    ? "bg-white text-slate-400" 
-                                    : isPass 
-                                      ? "bg-emerald-50 text-emerald-800" 
-                                      : "bg-rose-50 text-rose-800"
+                                  cellBg
                                 )}
-                                title={hasData ? (isPass ? '合格' : '不合格 (超出規格)') : '尚未輸入數據'}
+                                title={cellTitle}
                               >
                                 {hasData ? (
                                   <span>
@@ -1796,43 +1879,7 @@ export const ExperimentDetail = () => {
                           })}
                         </tr>
 
-                        {/* 2. LSL */}
-                        <tr className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
-                            規格下限 (LSL)
-                          </td>
-                          {sampleResults.map(({ item, spec }) => (
-                            <td key={item.id} className="px-5 py-3 text-center text-xs font-medium text-slate-600 border-r border-slate-100 last:border-r-0">
-                              {spec?.min ?? item.specMin ?? '-'}
-                            </td>
-                          ))}
-                        </tr>
-
-                        {/* 3. 目標值 */}
-                        <tr className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
-                            目標值
-                          </td>
-                          {sampleResults.map(({ item, spec }) => (
-                            <td key={item.id} className="px-5 py-3 text-center text-xs font-bold text-brand-600 border-r border-slate-100 last:border-r-0">
-                              {spec?.target ?? item.targetValue ?? '-'}
-                            </td>
-                          ))}
-                        </tr>
-
-                        {/* 4. USL */}
-                        <tr className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
-                            規格上限 (USL)
-                          </td>
-                          {sampleResults.map(({ item, spec }) => (
-                            <td key={item.id} className="px-5 py-3 text-center text-xs font-medium text-slate-600 border-r border-slate-100 last:border-r-0">
-                              {spec?.max ?? item.specMax ?? '-'}
-                            </td>
-                          ))}
-                        </tr>
-
-                        {/* 5. 原始數據 (點選查看) */}
+                        {/* 2. 原始數據 (點選查看) */}
                         <tr className="bg-slate-50/30 hover:bg-slate-50/60 transition-colors border-t border-slate-200">
                           <td className="px-5 py-3 text-xs font-bold text-slate-700 bg-slate-50/70 sticky left-0 z-10 border-r border-slate-200">
                             原始數據
@@ -2004,13 +2051,34 @@ export const ExperimentDetail = () => {
           isOpen={isDataModalOpen}
           onClose={() => setIsDataModalOpen(false)}
           testItem={activeTestItem}
-          specMin={project?.specs?.[activeTestItem.id]?.min}
-          specMax={project?.specs?.[activeTestItem.id]?.max}
-          targetValue={project?.specs?.[activeTestItem.id]?.target}
+          specMin={
+            samples.find(s => s.id === activeSampleId)?.specs?.[activeTestItem.id]?.min ?? 
+            project?.specs?.[activeTestItem.id]?.min ?? 
+            activeTestItem.specMin
+          }
+          specMax={
+            samples.find(s => s.id === activeSampleId)?.specs?.[activeTestItem.id]?.max ?? 
+            project?.specs?.[activeTestItem.id]?.max ?? 
+            activeTestItem.specMax
+          }
+          targetValue={
+            samples.find(s => s.id === activeSampleId)?.specs?.[activeTestItem.id]?.target ?? 
+            project?.specs?.[activeTestItem.id]?.target ?? 
+            activeTestItem.targetValue
+          }
           onSave={handleSaveData}
-          initialValues={samples.find(s => s.id === activeSampleId)?.results.find(r => r.testItemId === activeTestItem.id)?.rawValues}
+          initialValues={samples.find(s => s.id === activeSampleId)?.results?.find(r => r.testItemId === activeTestItem.id)?.rawValues}
         />
       )}
+
+      <SampleSpecModal
+        isOpen={!!sampleForSpecModal}
+        sample={samples.find(s => s.id === sampleForSpecModal)}
+        testItems={testItems}
+        projectSpecs={project?.specs}
+        onClose={() => setSampleForSpecModal(null)}
+        onSave={handleSaveSampleSpecs}
+      />
 
       <ExperimentModal 
         isOpen={isExpModalOpen}

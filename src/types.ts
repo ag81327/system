@@ -180,6 +180,7 @@ export interface Sample {
   qualityScore?: number;
   defects?: LensDefect[];
   results?: TestResult[]; // Optional for UI convenience
+  specs?: Record<string, { min?: number; max?: number; target?: number }>;
 }
 
 export interface MaterialMaster {
