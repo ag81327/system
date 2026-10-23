@@ -25,6 +25,31 @@ import { useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { toast } from 'sonner';
 
+// Helper to resolve curing energy string (specifically targeting 固化能量, avoiding 固化參數)
+export const resolveCuringEnergy = (energy?: string | number, exp?: Experiment): string => {
+  if (energy !== undefined && energy !== null && String(energy).trim() !== '') {
+    return String(energy);
+  }
+  // 1. Exact match on '固化能量' or containing '固化能量'
+  let cond = exp?.processConditions?.find(c => c.name?.includes('固化能量'));
+  // 2. Condition containing '固化' AND ('能量' or type is Energy)
+  if (!cond) {
+    cond = exp?.processConditions?.find(c => c.name?.includes('固化') && (c.name?.includes('能量') || c.type === 'Energy'));
+  }
+  // 3. Condition containing '能量' or type is Energy
+  if (!cond) {
+    cond = exp?.processConditions?.find(c => c.type === 'Energy' || c.name?.includes('能量'));
+  }
+  // 4. Fallback: contains '固化' but strictly excluding 參數, 時間, 條件
+  if (!cond) {
+    cond = exp?.processConditions?.find(c => c.name?.includes('固化') && !c.name?.includes('參數') && !c.name?.includes('時間') && !c.name?.includes('條件'));
+  }
+  if (cond && cond.value !== undefined && cond.value !== null && String(cond.value).trim() !== '') {
+    return `${cond.value}${cond.unit ? ` ${cond.unit}` : ''}`.trim();
+  }
+  return '-';
+};
+
 interface TestItemScatterComparisonProps {
   itemName: string;
   item: TestItem | undefined;
@@ -78,12 +103,17 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
   const hasSpecMin = specMin !== undefined && specMin !== null && !isNaN(Number(specMin));
   const hasSpecMax = specMax !== undefined && specMax !== null && !isNaN(Number(specMax));
 
+  const formatCuringEnergy = resolveCuringEnergy;
+
   // Compute group data & points
   const { groups, pointsData, meansData, yDomain } = useMemo(() => {
     interface RawPoint {
       val: number;
       sampleCode?: string;
       batchNumber?: string;
+      moldBatchNumber?: string;
+      formulationName?: string;
+      curingEnergy?: string;
       index: number;
     }
 
@@ -98,6 +128,9 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
       count: number;
       min: number;
       max: number;
+      formulationName?: string;
+      moldBatchNumber?: string;
+      curingEnergy?: string;
     }
 
     const groupsList: GroupInfo[] = [];
@@ -108,8 +141,30 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
         const rawPoints: RawPoint[] = [];
         let pIndex = 1;
 
+        // Aggregate formulation, mold batch, and curing energy for experiment
+        const formulations = Array.from(new Set(
+          expSamples.map(s => s.formulationName || exp.formulationName).filter(Boolean)
+        )) as string[];
+        const expFormulation = formulations.length > 0 
+          ? formulations.join(', ') 
+          : (exp.formulationName || '-');
+
+        const moldBatches = Array.from(new Set(
+          expSamples.map(s => s.moldBatchNumber).filter(Boolean)
+        )) as string[];
+        const expMoldBatch = moldBatches.length > 0 ? moldBatches.join(', ') : '-';
+
+        const energies = Array.from(new Set(
+          expSamples.map(s => formatCuringEnergy(s.curingEnergy, exp)).filter(e => e && e !== '-')
+        )) as string[];
+        const expEnergy = energies.length > 0 ? energies.join(', ') : formatCuringEnergy(undefined, exp);
+
         expSamples.forEach(sample => {
           const matchingResults = (sample.results || []).filter(r => relevantItemIds.includes(r.testItemId));
+          const sEnergy = formatCuringEnergy(sample.curingEnergy, exp);
+          const sEnergyVal = sEnergy !== '-' ? sEnergy : undefined;
+          const sFormulation = sample.formulationName || exp.formulationName;
+
           matchingResults.forEach(res => {
             if (res.rawValues && Array.isArray(res.rawValues) && res.rawValues.length > 0) {
               res.rawValues.forEach(val => {
@@ -118,6 +173,9 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
                     val: Number(val.toFixed(2)),
                     sampleCode: sample.sampleCode,
                     batchNumber: sample.batchNumber,
+                    moldBatchNumber: sample.moldBatchNumber,
+                    formulationName: sFormulation,
+                    curingEnergy: sEnergyVal,
                     index: pIndex++
                   });
                 }
@@ -127,6 +185,9 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
                 val: Number(res.mean.toFixed(2)),
                 sampleCode: sample.sampleCode,
                 batchNumber: sample.batchNumber,
+                moldBatchNumber: sample.moldBatchNumber,
+                formulationName: sFormulation,
+                curingEnergy: sEnergyVal,
                 index: pIndex++
               });
             }
@@ -150,7 +211,10 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
             stdDev,
             count: rawPoints.length,
             min: Math.min(...vals),
-            max: Math.max(...vals)
+            max: Math.max(...vals),
+            formulationName: expFormulation,
+            moldBatchNumber: expMoldBatch,
+            curingEnergy: expEnergy
           });
         }
       });
@@ -163,6 +227,11 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
           const rawPoints: RawPoint[] = [];
           let pIndex = 1;
 
+          const sFormulation = sample.formulationName || exp.formulationName || '-';
+          const sMoldBatch = sample.moldBatchNumber || '-';
+          const sEnergy = formatCuringEnergy(sample.curingEnergy, exp);
+          const sEnergyVal = sEnergy !== '-' ? sEnergy : undefined;
+
           matchingResults.forEach(res => {
             if (res.rawValues && Array.isArray(res.rawValues) && res.rawValues.length > 0) {
               res.rawValues.forEach(val => {
@@ -171,6 +240,9 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
                     val: Number(val.toFixed(2)),
                     sampleCode: sample.sampleCode,
                     batchNumber: sample.batchNumber,
+                    moldBatchNumber: sample.moldBatchNumber,
+                    formulationName: sFormulation !== '-' ? sFormulation : undefined,
+                    curingEnergy: sEnergyVal,
                     index: pIndex++
                   });
                 }
@@ -180,6 +252,9 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
                 val: Number(res.mean.toFixed(2)),
                 sampleCode: sample.sampleCode,
                 batchNumber: sample.batchNumber,
+                moldBatchNumber: sample.moldBatchNumber,
+                formulationName: sFormulation !== '-' ? sFormulation : undefined,
+                curingEnergy: sEnergyVal,
                 index: pIndex++
               });
             }
@@ -202,7 +277,10 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
               stdDev,
               count: rawPoints.length,
               min: Math.min(...vals),
-              max: Math.max(...vals)
+              max: Math.max(...vals),
+              formulationName: sFormulation,
+              moldBatchNumber: sMoldBatch,
+              curingEnergy: sEnergy
             });
           }
         });
@@ -226,6 +304,9 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
         stdDev: g.stdDev,
         min: g.min,
         max: g.max,
+        formulationName: g.formulationName,
+        moldBatchNumber: g.moldBatchNumber,
+        curingEnergy: g.curingEnergy,
         isMean: true
       });
       allValues.push(g.mean);
@@ -244,6 +325,9 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
           pointIndex: p.index,
           sampleCode: p.sampleCode,
           batchNumber: p.batchNumber,
+          moldBatchNumber: p.moldBatchNumber,
+          formulationName: p.formulationName,
+          curingEnergy: p.curingEnergy,
           diffFromMean: Number((p.val - g.mean).toFixed(2)),
           jitterOffset,
           isMean: false
@@ -346,6 +430,24 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
             <span>極值範圍:</span>
             <span className="font-mono text-white">{data.min} ~ {data.max}</span>
           </div>
+          {data.formulationName && data.formulationName !== '-' && (
+            <div className="flex justify-between text-slate-300 pt-1 border-t border-slate-800">
+              <span>配方名稱:</span>
+              <span className="text-white font-medium truncate max-w-[140px]" title={data.formulationName}>{data.formulationName}</span>
+            </div>
+          )}
+          {data.moldBatchNumber && data.moldBatchNumber !== '-' && (
+            <div className="flex justify-between text-slate-300">
+              <span>模具批號:</span>
+              <span className="text-white font-medium">{data.moldBatchNumber}</span>
+            </div>
+          )}
+          {data.curingEnergy && data.curingEnergy !== '-' && (
+            <div className="flex justify-between text-slate-300">
+              <span>固化能量:</span>
+              <span className="text-white font-medium">{data.curingEnergy}</span>
+            </div>
+          )}
         </div>
       );
     }
@@ -372,8 +474,26 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
             <span className="text-slate-800 font-medium">{data.batchNumber}</span>
           </div>
         )}
-        {data.diffFromMean !== undefined && (
+        {data.formulationName && data.formulationName !== '-' && (
           <div className="flex justify-between text-slate-500">
+            <span>配方名稱:</span>
+            <span className="text-slate-800 font-medium truncate max-w-[140px]" title={data.formulationName}>{data.formulationName}</span>
+          </div>
+        )}
+        {data.moldBatchNumber && data.moldBatchNumber !== '-' && (
+          <div className="flex justify-between text-slate-500">
+            <span>模具批號:</span>
+            <span className="text-slate-800 font-medium">{data.moldBatchNumber}</span>
+          </div>
+        )}
+        {data.curingEnergy && data.curingEnergy !== '-' && (
+          <div className="flex justify-between text-slate-500">
+            <span>固化能量:</span>
+            <span className="text-slate-800 font-medium">{data.curingEnergy}</span>
+          </div>
+        )}
+        {data.diffFromMean !== undefined && (
+          <div className="flex justify-between text-slate-500 pt-1 border-t border-slate-100">
             <span>距組平均:</span>
             <span className={cn("font-mono font-bold", data.diffFromMean >= 0 ? "text-emerald-600" : "text-rose-600")}>
               {data.diffFromMean >= 0 ? `+${data.diffFromMean}` : data.diffFromMean} {item?.unit}
@@ -499,15 +619,45 @@ const TestItemScatterComparison: React.FC<TestItemScatterComparisonProps> = ({
       </div>
 
       {/* Summary Stats Cards */}
-      <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+      <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
         {groups.map(g => (
-          <div key={g.key} className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/60 text-xs shadow-xs">
-            <p className="font-bold text-slate-800 truncate mb-1" title={g.fullName}>{g.fullName}</p>
-            <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+          <div key={g.key} className="bg-slate-50/90 hover:bg-white p-3 rounded-xl border border-slate-200/70 hover:border-brand-200 text-xs shadow-xs transition-all flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1 pb-1.5 mb-2 border-b border-slate-200/60">
+                <p className="font-bold text-slate-800 truncate text-xs" title={g.fullName}>{g.fullName}</p>
+                <span className="shrink-0 text-[10px] font-mono font-semibold px-1.5 py-0.5 bg-brand-50 text-brand-700 border border-brand-100 rounded">
+                  N={g.count}
+                </span>
+              </div>
+
+              {/* Sample / Group Metadata */}
+              <div className="space-y-1 mb-2.5 text-[11px] bg-white/80 p-2 rounded-lg border border-slate-200/50">
+                <div className="flex justify-between items-center gap-2">
+                  <span className="text-slate-400 shrink-0">配方名稱</span>
+                  <span className="font-medium text-slate-700 truncate text-right" title={g.formulationName || '-'}>
+                    {g.formulationName || '-'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center gap-2">
+                  <span className="text-slate-400 shrink-0">模具批號</span>
+                  <span className="font-medium text-slate-700 truncate text-right" title={g.moldBatchNumber || '-'}>
+                    {g.moldBatchNumber || '-'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center gap-2">
+                  <span className="text-slate-400 shrink-0">固化能量</span>
+                  <span className="font-medium text-slate-700 truncate text-right" title={g.curingEnergy || '-'}>
+                    {g.curingEnergy || '-'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Statistics */}
+            <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] text-slate-500 pt-1 border-t border-slate-200/40">
               <div>平均: <span className="font-mono font-bold text-slate-900">{g.mean.toFixed(2)}</span></div>
-              <div>點數: <span className="font-mono font-bold text-slate-900">{g.count}</span></div>
               <div>標準差: <span className="font-mono text-slate-700">{g.stdDev.toFixed(2)}</span></div>
-              <div>極值: <span className="font-mono text-slate-700">{g.min} ~ {g.max}</span></div>
+              <div className="col-span-2">極值: <span className="font-mono text-slate-700">{g.min} ~ {g.max}</span></div>
             </div>
           </div>
         ))}
@@ -672,7 +822,7 @@ export const DataComparison: React.FC = () => {
       data.push(['其他統計']);
       data.push(['模具批號', ...comparisonColumns.map(col => col.sample?.moldBatchNumber || '-')]);
       data.push(['配方名稱', ...comparisonColumns.map(col => col.sample?.formulationName || col.experiment.formulationName || '-')]);
-      data.push(['固化能量', ...comparisonColumns.map(col => col.sample?.curingEnergy !== undefined && col.sample?.curingEnergy !== '' ? String(col.sample?.curingEnergy) : (col.experiment.processConditions?.find(c => c.name.includes('固化') || c.name.includes('能量') || c.type === 'Energy')?.value ? `${col.experiment.processConditions.find(c => c.name.includes('固化') || c.name.includes('能量') || c.type === 'Energy')?.value} ${col.experiment.processConditions.find(c => c.name.includes('固化') || c.name.includes('能量') || c.type === 'Energy')?.unit || ''}`.trim() : '-'))]);
+      data.push(['固化能量', ...comparisonColumns.map(col => resolveCuringEnergy(col.sample?.curingEnergy, col.experiment))]);
       data.push(['良率 (A級占比)', ...comparisonColumns.map(col => getSampleDefectStats(col.sample).yieldA)]);
       data.push(['良率 (A+B級占比)', ...comparisonColumns.map(col => getSampleDefectStats(col.sample).yieldAB)]);
       
@@ -1034,11 +1184,7 @@ export const DataComparison: React.FC = () => {
                       <td className="p-4 text-sm font-medium text-slate-600 sticky left-0 bg-white z-10 border-r border-slate-50">固化能量</td>
                       {comparisonColumns.map(col => (
                         <td key={col.id} className="p-4 text-sm text-slate-700">
-                          {col.sample?.curingEnergy !== undefined && col.sample?.curingEnergy !== '' 
-                            ? String(col.sample?.curingEnergy) 
-                            : (col.experiment.processConditions?.find(c => c.name.includes('固化') || c.name.includes('能量') || c.type === 'Energy')?.value 
-                               ? `${col.experiment.processConditions.find(c => c.name.includes('固化') || c.name.includes('能量') || c.type === 'Energy')?.value} ${col.experiment.processConditions.find(c => c.name.includes('固化') || c.name.includes('能量') || c.type === 'Energy')?.unit || ''}`.trim()
-                               : '-')}
+                          {resolveCuringEnergy(col.sample?.curingEnergy, col.experiment)}
                         </td>
                       ))}
                     </tr>

@@ -511,17 +511,17 @@ export const ExperimentDetail = () => {
   };
 
   const getFrontCuringEnergy = () => {
-    const exact = processConditions.find(c => c.name.includes('固化') && (c.name.includes('能量') || c.type === 'Energy'));
+    const exact = processConditions.find(c => c.name?.includes('固化能量') || (c.name?.includes('固化') && (c.name?.includes('能量') || c.type === 'Energy')));
     if (exact && exact.value !== undefined && exact.value !== null) {
-      return `${exact.value}${exact.unit ? ` ${exact.unit}` : ''}`;
+      return `${exact.value}${exact.unit ? ` ${exact.unit}` : ''}`.trim();
     }
-    const byCuring = processConditions.find(c => c.name.includes('固化'));
-    if (byCuring && byCuring.value !== undefined && byCuring.value !== null) {
-      return `${byCuring.value}${byCuring.unit ? ` ${byCuring.unit}` : ''}`;
-    }
-    const byEnergy = processConditions.find(c => c.name.includes('能量') || c.type === 'Energy');
+    const byEnergy = processConditions.find(c => c.name?.includes('能量') || c.type === 'Energy');
     if (byEnergy && byEnergy.value !== undefined && byEnergy.value !== null) {
-      return `${byEnergy.value}${byEnergy.unit ? ` ${byEnergy.unit}` : ''}`;
+      return `${byEnergy.value}${byEnergy.unit ? ` ${byEnergy.unit}` : ''}`.trim();
+    }
+    const byCuring = processConditions.find(c => c.name?.includes('固化') && !c.name?.includes('參數') && !c.name?.includes('時間') && !c.name?.includes('條件'));
+    if (byCuring && byCuring.value !== undefined && byCuring.value !== null) {
+      return `${byCuring.value}${byCuring.unit ? ` ${byCuring.unit}` : ''}`.trim();
     }
     return '';
   };
