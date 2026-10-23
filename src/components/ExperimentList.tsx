@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -7,7 +7,8 @@ import {
   getPersistentProjects, 
   savePersistentExperiment, 
   deletePersistentExperiment,
-  getPersistentUsers
+  getPersistentUsers,
+  getPersistentSamples
 } from '../lib/persistence';
 import { 
   Beaker, 
@@ -27,13 +28,20 @@ import {
   X,
   Lock,
   Shield,
-  Users
+  Users,
+  FlaskConical,
+  Layers,
+  Sliders,
+  FileText,
+  Box
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { Experiment, User as AppUser } from '../types';
+import { Experiment, User as AppUser, Sample } from '../types';
 import { ExperimentModal } from './ExperimentModal';
 import { useAuth } from './AuthContext';
 import { useComparison } from './ComparisonContext';
+
+export type SearchScope = 'all' | 'mold' | 'material' | 'title' | 'content' | 'operator';
 
 export const ExperimentList = () => {
   const navigate = useNavigate();
@@ -42,12 +50,16 @@ export const ExperimentList = () => {
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [experimentSamples, setExperimentSamples] = useState<Record<string, Sample[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
   const [editingExperiment, setEditingExperiment] = useState<Experiment | undefined>(undefined);
   const [permissionExperiment, setPermissionExperiment] = useState<Experiment | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
+  const [searchScope, setSearchScope] = useState<SearchScope>('all');
+  const [isSearchScopeOpen, setIsSearchScopeOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<'all' | 'Draft' | 'Completed'>('all');
@@ -57,6 +69,22 @@ export const ExperimentList = () => {
   const [sortBy, setSortBy] = useState<'date' | 'title' | 'status'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [isSortOpen, setIsSortOpen] = useState(false);
+
+  useEffect(() => {
+    const q = searchParams.get('q');
+    if (q !== null && q !== searchQuery) {
+      setSearchQuery(q);
+    }
+  }, [searchParams]);
+
+  const handleSearchChange = (val: string) => {
+    setSearchQuery(val);
+    if (val.trim()) {
+      setSearchParams({ q: val }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -70,6 +98,20 @@ export const ExperimentList = () => {
         setExperiments(expsData);
         setProjects(projsData);
         setUsers(usersData.filter(u => u.role !== 'Admin')); // Only show non-admins for permission management
+
+        // 預先取得各實驗樣品資料（以支援模具批號、樣品編號檢索）
+        const sampleMap: Record<string, Sample[]> = {};
+        await Promise.all(
+          expsData.map(async (exp) => {
+            try {
+              const s = await getPersistentSamples(exp.id);
+              sampleMap[exp.id] = s;
+            } catch {
+              sampleMap[exp.id] = [];
+            }
+          })
+        );
+        setExperimentSamples(sampleMap);
       } catch (error) {
         console.error('Error fetching experiments:', error);
         toast.error('讀取數據失敗');
@@ -212,17 +254,184 @@ export const ExperimentList = () => {
     }
   };
 
-  const filteredExperiments = accessibleExperiments.filter(exp => {
-    const matchesSearch = exp.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         exp.operator.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = statusFilter === 'all' || exp.status === statusFilter;
-    
-    const matchesDate = (!dateRange.start || exp.date >= dateRange.start) &&
-                       (!dateRange.end || exp.date <= dateRange.end);
-    
-    return matchesSearch && matchesStatus && matchesDate;
-  });
+  const filteredExperiments = useMemo(() => {
+    const trimmed = searchQuery.trim().toLowerCase();
+    const terms = trimmed ? trimmed.split(/\s+/).filter(Boolean) : [];
+
+    return accessibleExperiments.filter(exp => {
+      // 1. Status Filter
+      if (statusFilter !== 'all' && exp.status !== statusFilter) return false;
+
+      // 2. Date Filter
+      if (dateRange.start && exp.date < dateRange.start) return false;
+      if (dateRange.end && exp.date > dateRange.end) return false;
+
+      // 3. Search Matching
+      if (terms.length === 0) return true;
+
+      const project = projects.find(p => p.id === exp.projectId);
+      const projName = project?.name?.toLowerCase() || '';
+      const samps = experimentSamples[exp.id] || [];
+
+      // Check if every keyword matches at least one target field
+      return terms.every(term => {
+        const matchesTitle = exp.title?.toLowerCase().includes(term);
+        const matchesOperator = exp.operator?.toLowerCase().includes(term);
+        const matchesFormulationName = exp.formulationName?.toLowerCase().includes(term);
+        const matchesProject = projName.includes(term);
+
+        // 模具批號匹配 (樣品中的 moldBatchNumber 或實驗本體的模具欄位)
+        const isMoldKeyword = term === '模具' || term === '模具批號' || term === 'mold';
+        const matchedMoldSamples = samps.filter(s =>
+          (s.moldBatchNumber && s.moldBatchNumber.toLowerCase().includes(term)) ||
+          (isMoldKeyword && Boolean(s.moldBatchNumber?.trim()))
+        );
+        const matchesMold = matchedMoldSamples.length > 0 ||
+          Boolean((exp as any).moldBatchNumber?.toLowerCase().includes(term)) ||
+          Boolean((exp as any).mold?.toLowerCase().includes(term)) ||
+          (isMoldKeyword && Boolean((exp as any).moldBatchNumber || (exp as any).mold));
+
+        // 樣品編號與樣品批次匹配
+        const matchesSample = samps.some(s =>
+          s.sampleCode?.toLowerCase().includes(term) ||
+          s.batchNumber?.toLowerCase().includes(term)
+        );
+
+        // 材料名稱與批號 (重點需求)
+        const matchesMaterial = (exp.formulation || []).some(item =>
+          item.materialName?.toLowerCase().includes(term) ||
+          item.batchNumber?.toLowerCase().includes(term)
+        );
+
+        // 製程條件名稱、數值與單位
+        const matchesCondition = (exp.processConditions || []).some(cond =>
+          cond.name?.toLowerCase().includes(term) ||
+          String(cond.value).toLowerCase().includes(term) ||
+          cond.unit?.toLowerCase().includes(term)
+        );
+
+        // 實驗觀察、異常記錄、結論、後續建議、備註內容
+        const matchesContent = [
+          exp.observations,
+          exp.anomalies,
+          exp.conclusions,
+          exp.suggestions,
+          exp.notes
+        ].some(text => text?.toLowerCase().includes(term));
+
+        if (searchScope === 'mold') {
+          return matchesMold;
+        }
+        if (searchScope === 'material') {
+          return matchesMaterial || matchesFormulationName || matchesMold;
+        }
+        if (searchScope === 'title') {
+          return matchesTitle;
+        }
+        if (searchScope === 'content') {
+          return matchesContent || matchesCondition;
+        }
+        if (searchScope === 'operator') {
+          return matchesOperator;
+        }
+
+        // 'all': 全域搜尋 (標題、模具、材料、配方、樣品、條件、內容、專案、人員)
+        return matchesTitle ||
+               matchesOperator ||
+               matchesMold ||
+               matchesMaterial ||
+               matchesFormulationName ||
+               matchesSample ||
+               matchesCondition ||
+               matchesContent ||
+               matchesProject;
+      });
+    });
+  }, [accessibleExperiments, searchQuery, searchScope, statusFilter, dateRange, projects, experimentSamples]);
+
+  const getExperimentHighlights = (exp: Experiment) => {
+    const trimmed = searchQuery.trim().toLowerCase();
+    if (!trimmed) return null;
+    const terms = trimmed.split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return null;
+
+    const samps = experimentSamples[exp.id] || [];
+    const isMoldKeyword = terms.some(t => t === '模具' || t === '模具批號' || t === 'mold');
+
+    // 模具匹配
+    const matchedMolds = Array.from(new Set([
+      ...samps
+        .filter(s => s.moldBatchNumber && (
+          terms.some(t => s.moldBatchNumber!.toLowerCase().includes(t)) || isMoldKeyword
+        ))
+        .map(s => s.moldBatchNumber!),
+      ...(((exp as any).moldBatchNumber && (terms.some(t => (exp as any).moldBatchNumber.toLowerCase().includes(t)) || isMoldKeyword))
+        ? [(exp as any).moldBatchNumber]
+        : [])
+    ])).filter(Boolean);
+
+    const matchedMaterials = (exp.formulation || []).filter(item =>
+      terms.some(t =>
+        item.materialName?.toLowerCase().includes(t) ||
+        item.batchNumber?.toLowerCase().includes(t)
+      )
+    );
+
+    const matchedFormulationName = exp.formulationName && terms.some(t => exp.formulationName?.toLowerCase().includes(t))
+      ? exp.formulationName
+      : null;
+
+    const matchedConditions = (exp.processConditions || []).filter(c =>
+      terms.some(t =>
+        c.name?.toLowerCase().includes(t) ||
+        String(c.value).toLowerCase().includes(t) ||
+        c.unit?.toLowerCase().includes(t)
+      )
+    );
+
+    const matchedSnippets: { label: string; text: string }[] = [];
+    const fields = [
+      { label: '備註', val: exp.notes },
+      { label: '觀察', val: exp.observations },
+      { label: '異常', val: exp.anomalies },
+      { label: '結論', val: exp.conclusions },
+      { label: '建議', val: exp.suggestions },
+    ];
+
+    for (const { label, val } of fields) {
+      if (!val) continue;
+      const cleanVal = val.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      const lower = cleanVal.toLowerCase();
+      for (const t of terms) {
+        const idx = lower.indexOf(t);
+        if (idx !== -1) {
+          const start = Math.max(0, idx - 10);
+          const end = Math.min(cleanVal.length, idx + t.length + 20);
+          const snippet = (start > 0 ? '...' : '') + cleanVal.substring(start, end).trim() + (end < cleanVal.length ? '...' : '');
+          matchedSnippets.push({ label, text: snippet });
+          break;
+        }
+      }
+    }
+
+    if (
+      matchedMolds.length === 0 &&
+      matchedMaterials.length === 0 &&
+      !matchedFormulationName &&
+      matchedConditions.length === 0 &&
+      matchedSnippets.length === 0
+    ) {
+      return null;
+    }
+
+    return {
+      matchedMolds,
+      matchedMaterials,
+      matchedFormulationName,
+      matchedConditions,
+      matchedSnippets,
+    };
+  };
 
   const sortedExperiments = useMemo(() => {
     return [...filteredExperiments].sort((a, b) => {
@@ -311,13 +520,23 @@ export const ExperimentList = () => {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input 
               type="text" 
-              placeholder="篩選實驗紀錄..." 
+              placeholder="搜尋實驗標題、模具批號、材料名稱、配方、內容或人員..." 
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border-transparent focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 rounded-lg text-sm transition-all outline-none"
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="w-full pl-10 pr-9 py-2 bg-slate-50 border-transparent focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 rounded-lg text-sm transition-all outline-none"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => handleSearchChange('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200 transition-colors"
+                title="清除搜尋"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {selectedIds.size > 0 && (
               <button 
                 onClick={handleBulkDelete}
@@ -327,6 +546,68 @@ export const ExperimentList = () => {
                 批量刪除 ({selectedIds.size})
               </button>
             )}
+
+            {/* 搜尋範圍選擇 */}
+            <div className="relative">
+              <button 
+                onClick={() => {
+                  setIsSearchScopeOpen(!isSearchScopeOpen);
+                  setIsSortOpen(false);
+                  setIsFilterOpen(false);
+                  setIsDateRangeOpen(false);
+                }}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-all",
+                  searchScope !== 'all' || isSearchScopeOpen ? "bg-brand-50 border-brand-200 text-brand-600 font-bold" : "text-slate-600 hover:bg-slate-50 border-slate-200"
+                )}
+                title="切換搜尋範圍"
+              >
+                <Search className="w-4 h-4" />
+                <span>
+                  {searchScope === 'all' && '全域搜尋'}
+                  {searchScope === 'mold' && '模具批號'}
+                  {searchScope === 'material' && '材料與配方'}
+                  {searchScope === 'title' && '僅標題'}
+                  {searchScope === 'content' && '實驗內容'}
+                  {searchScope === 'operator' && '實驗人員'}
+                </span>
+                {searchScope !== 'all' && <span className="w-2 h-2 rounded-full bg-brand-500"></span>}
+              </button>
+
+              {isSearchScopeOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsSearchScopeOpen(false)}></div>
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-100 z-20 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="p-2 space-y-1">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 py-1.5">搜尋欄位範圍</p>
+                      {[
+                        { id: 'all', label: '全部內容', desc: '標題、模具、材料名稱、配方、備註與人員' },
+                        { id: 'mold', label: '模具批號', desc: '搜尋使用特定模具的實驗' },
+                        { id: 'material', label: '材料名稱與配方', desc: '搜尋使用相同材料的實驗' },
+                        { id: 'title', label: '僅實驗標題', desc: '依標題名稱查找' },
+                        { id: 'content', label: '實驗內容與備註', desc: '觀察、異常、結論、建議與參數' },
+                        { id: 'operator', label: '實驗人員', desc: '依操作人員姓名查找' }
+                      ].map(item => (
+                        <button 
+                          key={item.id}
+                          onClick={() => {
+                            setSearchScope(item.id as SearchScope);
+                            setIsSearchScopeOpen(false);
+                          }}
+                          className={cn(
+                            "w-full text-left px-3 py-2 text-xs rounded-lg transition-colors flex flex-col",
+                            searchScope === item.id ? "bg-brand-50 text-brand-600 font-bold" : "text-slate-600 hover:bg-slate-50"
+                          )}
+                        >
+                          <span className="font-medium">{item.label}</span>
+                          <span className="text-[10px] text-slate-400 font-normal">{item.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
             
             <div className="relative">
               <button 
@@ -517,33 +798,108 @@ export const ExperimentList = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {sortedExperiments.map((exp) => {
-                const project = projects.find(p => p.id === exp.projectId);
-                return (
-                  <tr 
-                    key={exp.id} 
-                    className={cn(
-                      "hover:bg-slate-50/80 transition-colors group cursor-pointer",
-                      selectedIds.has(exp.id) && "bg-brand-50/30"
+              {sortedExperiments.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
+                    <Beaker className="w-10 h-10 mx-auto mb-2 opacity-20" />
+                    <p className="text-sm font-bold text-slate-600">查無符合條件的實驗紀錄</p>
+                    {searchQuery ? (
+                      <p className="text-xs text-slate-400 mt-1">
+                        找不到包含「{searchQuery}」的實驗標題、材料名稱、配方或紀錄內容。
+                      </p>
+                    ) : (
+                      <p className="text-xs text-slate-400 mt-1">
+                        目前尚無符合篩選條件的實驗紀錄。
+                      </p>
                     )}
-                    onClick={() => navigate(`/experiments/${exp.id}`)}
-                  >
-                    <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                      <input 
-                        type="checkbox"
-                        checked={selectedIds.has(exp.id)}
-                        onChange={(e) => toggleSelect(e as any, exp.id)}
-                        className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
-                      />
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center text-brand-600 group-hover:bg-brand-600 group-hover:text-white transition-colors">
-                          <Beaker className="w-4 h-4" />
+                    {(searchQuery || statusFilter !== 'all' || dateRange.start || dateRange.end || searchScope !== 'all') && (
+                      <button
+                        onClick={() => {
+                          handleSearchChange('');
+                          setStatusFilter('all');
+                          setDateRange({ start: '', end: '' });
+                          setSearchScope('all');
+                        }}
+                        className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        清除所有搜尋與篩選條件
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                sortedExperiments.map((exp) => {
+                  const project = projects.find(p => p.id === exp.projectId);
+                  const highlights = getExperimentHighlights(exp);
+                  return (
+                    <tr 
+                      key={exp.id} 
+                      className={cn(
+                        "hover:bg-slate-50/80 transition-colors group cursor-pointer",
+                        selectedIds.has(exp.id) && "bg-brand-50/30"
+                      )}
+                      onClick={() => navigate(`/experiments/${exp.id}`)}
+                    >
+                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                        <input 
+                          type="checkbox"
+                          checked={selectedIds.has(exp.id)}
+                          onChange={(e) => toggleSelect(e as any, exp.id)}
+                          className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+                        />
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center text-brand-600 group-hover:bg-brand-600 group-hover:text-white transition-colors shrink-0 mt-0.5">
+                            <Beaker className="w-4 h-4" />
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-sm font-bold text-slate-900 group-hover:text-brand-600 transition-colors">
+                              {exp.title}
+                            </span>
+
+                            {/* 搜尋命中詳細標籤 */}
+                            {highlights && (
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                {highlights.matchedMolds.length > 0 && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                    <Box className="w-3 h-3 text-amber-600 shrink-0" />
+                                    模具: {highlights.matchedMolds.join(', ')}
+                                  </span>
+                                )}
+                                {highlights.matchedMaterials.length > 0 && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <FlaskConical className="w-3 h-3 text-emerald-600 shrink-0" />
+                                    材料: {highlights.matchedMaterials.map(m => m.materialName + (m.batchNumber ? ` [${m.batchNumber}]` : '')).join(', ')}
+                                  </span>
+                                )}
+                                {highlights.matchedFormulationName && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                    <Layers className="w-3 h-3 text-blue-600 shrink-0" />
+                                    配方命中: {highlights.matchedFormulationName}
+                                  </span>
+                                )}
+                                {highlights.matchedConditions.length > 0 && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                                    <Sliders className="w-3 h-3 text-purple-600 shrink-0" />
+                                    參數: {highlights.matchedConditions.map(c => `${c.name} ${c.value}${c.unit}`).join(', ')}
+                                  </span>
+                                )}
+                                {highlights.matchedSnippets.length > 0 && (
+                                  <span 
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200 max-w-sm truncate"
+                                    title={highlights.matchedSnippets.map(s => `${s.label}: ${s.text}`).join(' | ')}
+                                  >
+                                    <FileText className="w-3 h-3 text-amber-600 shrink-0" />
+                                    {highlights.matchedSnippets[0].label}: {highlights.matchedSnippets[0].text}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-sm font-bold text-slate-900">{exp.title}</span>
-                      </div>
-                    </td>
+                      </td>
                     <td className="px-6 py-4">
                       <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-md">
                         {project?.name || '未知專案'}
@@ -617,7 +973,7 @@ export const ExperimentList = () => {
                     </td>
                   </tr>
                 );
-              })}
+              }))}
             </tbody>
           </table>
         </div>

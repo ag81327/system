@@ -219,8 +219,12 @@ export const Layout = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input 
                 type="text" 
-                placeholder="搜尋專案、實驗、數據..." 
-                onKeyDown={(e) => e.key === 'Enter' && toast.info(`正在搜尋: ${e.currentTarget.value}`)}
+                placeholder="搜尋專案、實驗、材料、數據..." 
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                    navigate(`/experiments?q=${encodeURIComponent(e.currentTarget.value.trim())}`);
+                  }
+                }}
                 className="w-full pl-10 pr-4 py-2 bg-slate-100 border-transparent focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-50 rounded-lg text-sm transition-all outline-none"
               />
             </div>
