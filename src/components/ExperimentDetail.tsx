@@ -26,12 +26,14 @@ import {
   Eye,
   EyeOff,
   CheckSquare,
-  Sliders
+  Sliders,
+  Sparkles
 } from 'lucide-react';
 import { cn, generateMockResults } from '../lib/utils';
 import { DataEntryModal } from './DataEntryModal';
 import { SampleSpecModal } from './SampleSpecModal';
 import { ExperimentModal } from './ExperimentModal';
+import { BatchSampleImportModal } from './BatchSampleImportModal';
 import { RichTextEditor } from './RichTextEditor';
 import { SpecificationManager } from './SpecificationManager';
 import { useAuth } from './AuthContext';
@@ -170,6 +172,7 @@ export const ExperimentDetail = () => {
   const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
   const [sampleForTestItemSelect, setSampleForTestItemSelect] = useState<string | null>(null);
   const [sampleForSpecModal, setSampleForSpecModal] = useState<string | null>(null);
+  const [isBatchImportModalOpen, setIsBatchImportModalOpen] = useState(false);
   const [expandedRawMap, setExpandedRawMap] = useState<Record<string, boolean>>({});
 
   const toggleRawExpanded = (sampleId: string, testItemId: string) => {
@@ -236,6 +239,37 @@ export const ExperimentDetail = () => {
     await savePersistentSamples(id || 'e1', updatedSamples);
     setSampleForTestItemSelect(null);
     toast.success('樣品測試項目已更新');
+  };
+
+  const [expandedLensRowsMap, setExpandedLensRowsMap] = useState<Record<string, boolean>>({});
+
+  const handleBatchSaveSamples = async (sampleOrSamples: Sample | Sample[], newTestItems?: TestItem[]) => {
+    if (newTestItems && newTestItems.length > 0) {
+      const updatedItems = [...testItems, ...newTestItems];
+      setTestItems(updatedItems);
+      await savePersistentTestItems(updatedItems);
+    }
+
+    const incoming = Array.isArray(sampleOrSamples) ? sampleOrSamples : [sampleOrSamples];
+    let updated = [...samples];
+
+    for (const item of incoming) {
+      const idx = updated.findIndex(s => s.id === item.id || (s.sampleCode === item.sampleCode && s.batchNumber === item.batchNumber));
+      if (idx !== -1) {
+        updated[idx] = item;
+      } else {
+        updated.push(item);
+      }
+    }
+
+    setSamples(updated);
+    await savePersistentSamples(id || 'e1', updated);
+
+    if (!Array.isArray(sampleOrSamples)) {
+      toast.success(`成功建立樣品卡片「${sampleOrSamples.sampleCode}」！(同一批次數據已統整於此卡片)`);
+    } else {
+      toast.success(`成功建立 ${incoming.length} 筆樣品數據！`);
+    }
   };
 
   // Prompt Modal State
@@ -1720,13 +1754,24 @@ export const ExperimentDetail = () => {
       <div className="space-y-12">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold text-slate-900">樣品分析與紀錄</h2>
-          <button 
-            onClick={handleAddSample}
-            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-all shadow-lg shadow-brand-200"
-          >
-            <Plus className="w-4 h-4" />
-            新增樣品
-          </button>
+          <div className="flex items-center gap-3">
+            <button 
+              type="button"
+              onClick={() => setIsBatchImportModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-brand-600 text-white rounded-xl text-sm font-bold hover:brightness-105 transition-all shadow-md shadow-brand-100 cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4" />
+              智能新增樣品
+            </button>
+            <button 
+              type="button"
+              onClick={handleAddSample}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all shadow-xs"
+            >
+              <Plus className="w-4 h-4" />
+              手動新增樣品
+            </button>
+          </div>
         </div>
 
         {/* 1. Lens Characteristic Analysis */}
@@ -2013,6 +2058,93 @@ export const ExperimentDetail = () => {
                     </table>
                   </div>
                 )}
+
+                {/* Collapsible Per-Lens Inspection Table for this Batch */}
+                {sample.lensRows && sample.lensRows.length > 0 && (
+                  <div className="border-t border-slate-100 bg-slate-50/50 p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                          <CheckSquare className="w-3.5 h-3.5 text-brand-600" />
+                          此批鏡片各編號詳細量測表 (共 {sample.lensRows.length} 片)
+                        </span>
+                        <span className="text-[11px] text-slate-400">
+                          (已自動統整上方平均值與下方缺陷統計)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedLensRowsMap(prev => ({ ...prev, [sample.id]: !prev[sample.id] }))}
+                        className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1 cursor-pointer"
+                      >
+                        {expandedLensRowsMap[sample.id] ? '收合明細表' : '展開查看各編號明細'}
+                      </button>
+                    </div>
+
+                    {expandedLensRowsMap[sample.id] && (
+                      <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white max-h-[340px] overflow-y-auto">
+                        <table className="w-full text-xs text-left border-collapse font-mono">
+                          <thead className="bg-slate-100 text-slate-600 font-bold sticky top-0 z-10 shadow-xs">
+                            <tr>
+                              <th className="p-2 border-b border-r text-center w-14">編號</th>
+                              <th className="p-2 border-b border-r text-center">DIA</th>
+                              <th className="p-2 border-b border-r text-center">BC</th>
+                              <th className="p-2 border-b border-r text-center">CT</th>
+                              <th className="p-2 border-b border-r text-center">ET-1</th>
+                              <th className="p-2 border-b border-r text-center">ET-2</th>
+                              <th className="p-2 border-b border-r text-center">ET-3</th>
+                              <th className="p-2 border-b border-r text-center">ET-4</th>
+                              <th className="p-2 border-b border-r text-center">FC (屈光度)</th>
+                              <th className="p-2 border-b border-r text-center">外觀缺陷</th>
+                              <th className="p-2 border-b text-center">紋路</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {sample.lensRows.map((lr: any, lIdx: number) => {
+                              const defArr = Object.entries(lr.defects || {})
+                                .filter(([_, isSet]) => !!isSet)
+                                .map(([name]) => name);
+
+                              return (
+                                <tr key={lIdx} className="hover:bg-slate-50">
+                                  <td className="p-2 border-r text-center font-bold text-slate-800">{lr.code || `#${lr.index || lIdx + 1}`}</td>
+                                  <td className="p-2 border-r text-center">{lr.dia ?? '-'}</td>
+                                  <td className="p-2 border-r text-center">{lr.bc ?? '-'}</td>
+                                  <td className="p-2 border-r text-center">{lr.ct ?? '-'}</td>
+                                  <td className="p-2 border-r text-center">{lr.et1 ?? '-'}</td>
+                                  <td className="p-2 border-r text-center">{lr.et2 ?? '-'}</td>
+                                  <td className="p-2 border-r text-center">{lr.et3 ?? '-'}</td>
+                                  <td className="p-2 border-r text-center">{lr.et4 ?? '-'}</td>
+                                  <td className="p-2 border-r text-center">{lr.fc ?? '-'}</td>
+                                  <td className="p-2 border-r text-center font-sans">
+                                    {defArr.length > 0 ? (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-100 text-purple-700 font-bold border border-purple-200">
+                                        {defArr.join(', ')} (✕)
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300">-</span>
+                                    )}
+                                  </td>
+                                  <td className="p-2 text-center font-bold">
+                                    {lr.grainGrade ? (
+                                      <span className={cn(
+                                        "px-1.5 py-0.5 rounded text-[10px]",
+                                        lr.grainGrade === 'A' ? "bg-emerald-100 text-emerald-700" :
+                                        lr.grainGrade === 'B' ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
+                                      )}>
+                                        {lr.grainGrade}
+                                      </span>
+                                    ) : '-'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           }))}
@@ -2230,6 +2362,22 @@ export const ExperimentDetail = () => {
           }}
         />
       )}
+
+      {/* Batch Sample Import Modal */}
+      <BatchSampleImportModal
+        isOpen={isBatchImportModalOpen}
+        onClose={() => setIsBatchImportModalOpen(false)}
+        experimentId={id || 'e1'}
+        testItems={testItems}
+        existingSamples={samples}
+        defectMasters={defectMasters}
+        defectTypes={defectTypes}
+        projectSpecs={project?.specs}
+        defaultBatchNumber={samples.length > 0 ? samples[samples.length - 1].batchNumber : '20260625'}
+        defaultMoldBatchNumber={samples.length > 0 ? (samples[samples.length - 1].moldBatchNumber || '') : '上模 : 0529 #3 / 下模 : 0905 #3'}
+        defaultFormulationName={getFrontFormulationName() || '20260625 HIUS10043'}
+        onSaveBatch={handleBatchSaveSamples}
+      />
 
       {/* Test Item Selection Modal */}
       {isTestItemModalOpen && (

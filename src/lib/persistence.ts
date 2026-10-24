@@ -60,17 +60,43 @@ export const savePersistentExperiments = async (experiments: Experiment[]) => {
 };
 
 export const getPersistentSamples = async (experimentId: string): Promise<Sample[]> => {
-  return firebaseService.getSamples(experimentId);
+  try {
+    const cloud = await firebaseService.getSamples(experimentId);
+    if (cloud && cloud.length > 0) {
+      localStorage.setItem(`rd_samples_${experimentId}`, JSON.stringify(cloud));
+      return cloud;
+    }
+  } catch (e) {
+    console.warn('Could not fetch samples from Cloud, checking local backup:', e);
+  }
+  return getLocalArray<Sample>(`rd_samples_${experimentId}`);
 };
 
 export const savePersistentSamples = async (experimentId: string, samples: Sample[]) => {
-  for (const sample of samples) {
-    await firebaseService.saveSample(experimentId, sample);
+  // Sync to local storage immediately so report exports can always read them offline
+  try {
+    localStorage.setItem(`rd_samples_${experimentId}`, JSON.stringify(samples));
+  } catch (e) {
+    console.warn('Failed to cache samples in localStorage:', e);
+  }
+
+  // Persist each sample into Firebase Cloud Firestore in parallel
+  try {
+    await Promise.all(samples.map(sample => firebaseService.saveSample(experimentId, sample)));
+  } catch (err) {
+    console.warn('Could not save all samples to Cloud Firestore:', err);
   }
 };
 
 export const deletePersistentSample = async (experimentId: string, id: string) => {
-  await firebaseService.deleteSample(experimentId, id);
+  const current = getLocalArray<Sample>(`rd_samples_${experimentId}`);
+  const updated = current.filter(s => s.id !== id);
+  localStorage.setItem(`rd_samples_${experimentId}`, JSON.stringify(updated));
+  try {
+    await firebaseService.deleteSample(experimentId, id);
+  } catch (e) {
+    console.warn('Could not delete sample from Cloud Firestore:', e);
+  }
 };
 
 // LocalStorage Fallback Utilities
