@@ -65,7 +65,7 @@ export const Login: React.FC = () => {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-brand-600 text-white mb-4 shadow-xl shadow-brand-200">
             <Beaker className="w-8 h-8" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">摩爾應材研發數據管理平台</h1>
+          <h1 className="text-2xl font-bold text-slate-900">MORE 研發數據管理平台</h1>
           <p className="text-slate-500 mt-2">請登入以存取您的數據紀錄</p>
         </div>
 

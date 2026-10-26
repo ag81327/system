@@ -33,11 +33,13 @@ import {
   Layers,
   Sliders,
   FileText,
-  Box
+  Box,
+  FileSpreadsheet
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Experiment, User as AppUser, Sample } from '../types';
 import { ExperimentModal } from './ExperimentModal';
+import { DataSummaryExportModal } from './DataSummaryExportModal';
 import { useAuth } from './AuthContext';
 import { useComparison } from './ComparisonContext';
 
@@ -69,6 +71,8 @@ export const ExperimentList = () => {
   const [sortBy, setSortBy] = useState<'date' | 'title' | 'status'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [isSortOpen, setIsSortOpen] = useState(false);
+  const [isExportSummaryModalOpen, setIsExportSummaryModalOpen] = useState(false);
+  const [exportTargetExperiments, setExportTargetExperiments] = useState<Experiment[]>([]);
 
   useEffect(() => {
     const q = searchParams.get('q');
@@ -193,15 +197,14 @@ export const ExperimentList = () => {
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === filteredExperiments.length) {
+    if (selectedIds.size === sortedExperiments.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(filteredExperiments.map(e => e.id)));
+      setSelectedIds(new Set(sortedExperiments.map(e => e.id)));
     }
   };
 
-  const toggleSelect = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
+  const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -537,13 +540,43 @@ export const ExperimentList = () => {
             )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {selectedIds.size > 0 && (
+            {selectedIds.size > 0 ? (
+              <>
+                <button 
+                  onClick={() => {
+                    const targets = sortedExperiments.filter(e => selectedIds.has(e.id));
+                    setExportTargetExperiments(targets);
+                    setIsExportSummaryModalOpen(true);
+                  }}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-all animate-in fade-in slide-in-from-right-2 cursor-pointer shadow-xs"
+                  title="將選取的實驗標題數據匯出成數據彙整報表"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                  匯出報表 ({selectedIds.size})
+                </button>
+                <button 
+                  onClick={handleBulkDelete}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 transition-all animate-in fade-in slide-in-from-right-2"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  批量刪除 ({selectedIds.size})
+                </button>
+              </>
+            ) : (
               <button 
-                onClick={handleBulkDelete}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 transition-all animate-in fade-in slide-in-from-right-2"
+                onClick={() => {
+                  if (filteredExperiments.length === 0) {
+                    toast.warning('目前無可匯出的實驗記錄');
+                    return;
+                  }
+                  setExportTargetExperiments(filteredExperiments);
+                  setIsExportSummaryModalOpen(true);
+                }}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-all cursor-pointer shadow-xs"
+                title="匯出數據彙整報表 (可勾選多筆或匯出目前篩選結果)"
               >
-                <Trash2 className="w-4 h-4" />
-                批量刪除 ({selectedIds.size})
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>匯出數據彙整表</span>
               </button>
             )}
 
@@ -784,7 +817,7 @@ export const ExperimentList = () => {
                 <th className="px-6 py-4 w-10">
                   <input 
                     type="checkbox"
-                    checked={selectedIds.size > 0 && selectedIds.size === sortedExperiments.length}
+                    checked={sortedExperiments.length > 0 && selectedIds.size === sortedExperiments.length}
                     onChange={toggleSelectAll}
                     className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
                   />
@@ -841,12 +874,18 @@ export const ExperimentList = () => {
                       )}
                       onClick={() => navigate(`/experiments/${exp.id}`)}
                     >
-                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                      <td 
+                        className="px-6 py-4 cursor-pointer select-none" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSelect(exp.id);
+                        }}
+                      >
                         <input 
                           type="checkbox"
                           checked={selectedIds.has(exp.id)}
-                          onChange={(e) => toggleSelect(e as any, exp.id)}
-                          className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+                          readOnly
+                          className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer pointer-events-none"
                         />
                       </td>
                       <td className="px-6 py-4">
@@ -954,6 +993,17 @@ export const ExperimentList = () => {
                             <Lock className="w-4 h-4" />
                           </button>
                         )}
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExportTargetExperiments([exp]);
+                            setIsExportSummaryModalOpen(true);
+                          }}
+                          className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                          title="匯出此筆數據彙整表"
+                        >
+                          <FileSpreadsheet className="w-4 h-4" />
+                        </button>
                         <button 
                           onClick={(e) => handleEditExperiment(e, exp)}
                           className="p-2 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-all"
@@ -1205,6 +1255,69 @@ export const ExperimentList = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 勾選多筆實驗時的底部懸浮操作列 (解決用戶需求 2) */}
+      <AnimatePresence>
+        {selectedIds.size > 0 && (
+          <motion.div 
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            className={cn(
+              "fixed left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-md text-white rounded-2xl shadow-2xl px-5 py-3 flex items-center gap-4 border border-slate-700/60 transition-all",
+              selectedExperiments.length > 0 ? "bottom-24" : "bottom-6"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center border border-emerald-500/30">
+                {selectedIds.size}
+              </span>
+              <span className="text-sm font-medium text-slate-200">
+                已選取 <strong className="text-white font-bold">{selectedIds.size}</strong> 筆實驗
+              </span>
+            </div>
+
+            <div className="h-4 w-px bg-slate-700" />
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const targets = sortedExperiments.filter(e => selectedIds.has(e.id));
+                  setExportTargetExperiments(targets);
+                  setIsExportSummaryModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-950/40 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                匯出報表 ({selectedIds.size})
+              </button>
+
+              <button
+                onClick={handleBulkDelete}
+                className="flex items-center gap-1.5 px-3 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 rounded-xl text-xs font-semibold transition-all border border-rose-500/30 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                批量刪除
+              </button>
+
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors ml-1 cursor-pointer"
+                title="取消選取"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Data Summary Export Modal */}
+      <DataSummaryExportModal
+        isOpen={isExportSummaryModalOpen}
+        onClose={() => setIsExportSummaryModalOpen(false)}
+        experiments={exportTargetExperiments}
+      />
     </div>
   );
 };

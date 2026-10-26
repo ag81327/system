@@ -55,3 +55,7 @@ Thumbs.db
 .cache/
 *.tmp
 *.temp
+
+# Internal Documentation & Scratch (Private)
+docs/
+scratch/

@@ -27,13 +27,15 @@ import {
   EyeOff,
   CheckSquare,
   Sliders,
-  Sparkles
+  Sparkles,
+  FileSpreadsheet
 } from 'lucide-react';
 import { cn, generateMockResults } from '../lib/utils';
 import { DataEntryModal } from './DataEntryModal';
 import { SampleSpecModal } from './SampleSpecModal';
 import { ExperimentModal } from './ExperimentModal';
 import { BatchSampleImportModal } from './BatchSampleImportModal';
+import { DataSummaryExportModal } from './DataSummaryExportModal';
 import { RichTextEditor } from './RichTextEditor';
 import { SpecificationManager } from './SpecificationManager';
 import { useAuth } from './AuthContext';
@@ -173,6 +175,7 @@ export const ExperimentDetail = () => {
   const [sampleForTestItemSelect, setSampleForTestItemSelect] = useState<string | null>(null);
   const [sampleForSpecModal, setSampleForSpecModal] = useState<string | null>(null);
   const [isBatchImportModalOpen, setIsBatchImportModalOpen] = useState(false);
+  const [isExportSummaryModalOpen, setIsExportSummaryModalOpen] = useState(false);
   const [expandedRawMap, setExpandedRawMap] = useState<Record<string, boolean>>({});
 
   const toggleRawExpanded = (sampleId: string, testItemId: string) => {
@@ -1070,6 +1073,14 @@ export const ExperimentDetail = () => {
         </button>
         <div className="flex gap-3">
           <button 
+            onClick={() => setIsExportSummaryModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-sm font-bold hover:bg-emerald-100 transition-colors shadow-xs cursor-pointer"
+            title="將此實驗樣品特性與缺陷數據匯出為數據彙整報表"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            匯出數據彙整表
+          </button>
+          <button 
             onClick={() => setIsSpecModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm"
           >
@@ -1757,6 +1768,15 @@ export const ExperimentDetail = () => {
           <div className="flex items-center gap-3">
             <button 
               type="button"
+              onClick={() => setIsExportSummaryModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 rounded-xl text-sm font-bold transition-all shadow-xs cursor-pointer"
+              title="匯出此實驗的鏡片特性分析與缺陷統計紀錄為數據彙整表"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              匯出數據彙整表
+            </button>
+            <button 
+              type="button"
               onClick={() => setIsBatchImportModalOpen(true)}
               className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-brand-600 text-white rounded-xl text-sm font-bold hover:brightness-105 transition-all shadow-md shadow-brand-100 cursor-pointer"
             >
@@ -2378,6 +2398,16 @@ export const ExperimentDetail = () => {
         defaultFormulationName={getFrontFormulationName() || '20260625 HIUS10043'}
         onSaveBatch={handleBatchSaveSamples}
       />
+
+      {/* Data Summary Export Modal */}
+      {experiment && (
+        <DataSummaryExportModal
+          isOpen={isExportSummaryModalOpen}
+          onClose={() => setIsExportSummaryModalOpen(false)}
+          experiments={[experiment]}
+          initialExperimentId={experiment.id}
+        />
+      )}
 
       {/* Test Item Selection Modal */}
       {isTestItemModalOpen && (
